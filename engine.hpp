@@ -25,7 +25,7 @@ public:
     Tensor<T> operator [] (idx_type) const = delete;
 	Tensor<T> operator [] (std::initializer_list<idx_type>) const;    // no multiple arguments until c++23
     Tensor<T> operator [] (const Tensor<bool>&) const = delete;                // returns a 1d Tensor
-    Tensor<T> operator [] (Range&&) = delete;                                  // indexing array without creating new Range instance
+    Tensor<T> operator [] (Range<len_type>&&) = delete;                                  // indexing array without creating new Range instance
 
     Tensor<bool> operator == (const Tensor<T>&) = delete;
     Tensor<bool> operator > (const Tensor<T>&) = delete;

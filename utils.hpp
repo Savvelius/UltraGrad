@@ -9,6 +9,7 @@
 #define MAX(x, y) ((x<y)?y:x)
 
 typedef int     idx_type;
+typedef int64_t T;
 typedef size_t  len_type;
 typedef uint8_t dim_type;
 
@@ -135,40 +136,102 @@ public:
     friend class Tensor;    // FIXME maybe wrong to do this
 };
 
-// FIXME if RangeIterator becomes template class, replace this with definiton
-class RangeIterator;
-
-// FIXME make me usable pls
-#pragma pack(1)
-class Range{
-private:
-    struct{
-        len_type start;
-        len_type stop;
-        len_type step;
-    } range_info;
-    len_type length = 0;
-    len_type* data = nullptr;   // FIXME may be useless
-public:
-    Range(len_type start_, len_type stop = 0, len_type step = 0) = delete;
-    len_type* unfold() = delete;        // FIXME maybe useless
-    RangeIterator begin() = delete;     // range iteration
-    RangeIterator end() = delete;       // range iteration
-    ~Range() = delete;
-};
-
 // FIXME read something on for(:) loops to implement this class
 // FIXME maybe make it a template Iterator class to use it somewhere else than Range class
-class RangeIterator {
+template<typename Container, typename Element>
+class Iterator__ {
 private:
     // FIXME pointer of some type should be here with some kind of counter probably
+    Container iterable;
+    Element* current = nullptr;
 public:
-    RangeIterator& operator ++() = delete;        // ++it
-    RangeIterator operator ++(int) = delete;     // it++
-    RangeIterator& operator --() = delete;        // --it
-    RangeIterator operator --(int) = delete;     // it--
-    bool operator != (const RangeIterator&) = delete;   // for != for loop comparison
+    using iterator = Iterator__<Container, Element>;
+
+    iterator& operator ++() = delete;        // ++it
+    iterator operator ++(int) = delete;     // it++
+    iterator& operator --() = delete;        // --it
+    iterator operator --(int) = delete;     // it--
+    bool operator != (const iterator&) = delete;   // for != for loop comparison
 };
+
+// FIXME i am usable
+#pragma pack(1)
+template<typename T>
+class Range {
+private:
+    struct{
+        T start = 0;
+        T stop  = 0;
+        T step  = 0;
+    } range_info;
+    struct Iterator {   // FIXME may be implemented as another double template class
+        T current = 0;
+        T step = 0;
+        Iterator() = default;
+        Iterator(T start, T step);
+        Iterator operator ++(int) &;
+        Iterator& operator ++();     // actually this gets called in for(:) loop
+        T operator*();
+        bool operator != (const Iterator&);
+    };
+public:
+    Range(T start_, T stop_ = 0, T step_ = 0);
+    len_type* unfold() = delete;        // FIXME maybe useless
+    Iterator begin();     // range iteration
+    Iterator end();       // range iteration
+    ~Range() = default;
+
+    friend Iterator;
+};
+
+
+template<typename T>
+typename Range<T>::Iterator Range<T>::Iterator::operator++(int) & {
+    auto temp = *this;
+    this->current += this->step;
+    return temp;
+}
+
+template<typename T>
+bool Range<T>::Iterator::operator!=(const Range<T>::Iterator & other) {
+    return this->current < other.current;
+}
+
+template<typename T>
+Range<T>::Iterator::Iterator(T start, T step) {
+    this->current = start;
+    this->step = step;
+}
+
+template<typename T>
+typename Range<T>::Iterator& Range<T>::Iterator::operator++() {
+    this->current += this->step;
+    return *this;
+}
+
+template<typename T>
+T Range<T>::Iterator::operator*() {
+    return this->current;
+}
+
+template<typename T>
+Range<T>::Range(T start_, T stop_, T step_) {
+    if (start_ > stop_)
+        assert(step_ < 0);
+    else if (start_ != stop_)
+        assert(step_ > 0);
+    this->range_info = {start_, stop_, step_};
+}
+
+template<typename T>
+typename Range<T>::Iterator Range<T>::begin() {
+    return Range::Iterator(this->range_info.start, this->range_info.step);
+}
+template<typename T>
+typename Range<T>::Iterator Range<T>::end() {
+    return Range::Iterator(this->range_info.stop, 0);
+}
+
 
 
 

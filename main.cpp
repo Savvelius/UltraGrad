@@ -78,23 +78,9 @@ public:
     }
 };
 
-constexpr int sum(int first, int second){
-    return first + second;
-}
-
-template<typename T, uint32_t size>
-constexpr T arrSum(std::array<T, size> arr){
-    T out = 0;
-    for (int i = 0; i < arr.size(); i++) out += arr[i];
-    return out;
-}
-
-SharedPtr<int> f(SharedPtr<int> p){
-    return p;
-}
 
 int main() {
-    RangeIterator it;
-    ++ it;
-    it++;
+    cout << sizeof (Range<float>) << '\n';
+    for(auto i: Range<float>(0, 11.9, 1.17))
+        cout << i << "  ";
 }
