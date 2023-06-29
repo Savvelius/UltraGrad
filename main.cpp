@@ -6,6 +6,9 @@
 #include <initializer_list>
 #include <vector>
 #include <algorithm>
+#include <optional>
+#include <concepts>
+#include <array>
 
 using std::cout, std::endl, std::vector;
 
@@ -34,21 +37,28 @@ void printArr(T arr[size]){
 
 class Test {
 private:
-    int x = 0;
+    int id = 0;
 public:
-    Test() {cout << "Def constr" << endl;}
-    ~Test() {cout << "Destr" << endl;}
+    Test(int x = 0) {id = x; cout << "Def constr " << id << endl;}
+    ~Test() {cout << "Destr " << id << endl;}
     Test(Test&& t) noexcept {
-        cout << "move constr" << endl;
-        x = t.x;
-        t.x = 0;
+        cout << "move constr " << id << endl;
+        id = t.id;
+        t.id = 0;
     }
     Test(const Test& t){
-        cout << "copy constr" << endl;
-        this->x = t.x;
+        cout << "copy constr " << id << endl;
+        this->id = t.id;
+    }
+    Test& operator=(const Test& other){
+        cout << "Copy assign " << id << endl;
+        return *this;
+    }
+    Test& operator=(Test&& other){
+        cout << "Move assign " << id << endl;
+        return *this;
     }
 };
-
 
 class Matrix {
 private:
@@ -78,9 +88,59 @@ public:
     }
 };
 
+class Base{
+public:
+    Base() {cout << "Base constructor\n";}
+    void hello() {cout<<"hello from base function\n";}
+    ~Base() {cout << "Goodbye from Base destructor\n";}
+};
+
+class Derived:public Base{
+public:
+    Derived() {cout << "Derived constructor\n";}
+    void hello()  {cout << "hello from derived function\n";}
+    ~Derived() {cout << "Goodbye from Derived destructor\n";}
+};
+
+#include <cstring>
+class String{
+    char* str = nullptr;
+public:
+    const char* get_string() {return str;}
+    String(const char* str_){
+        cout << "Constructor\n";
+        this->str = new char[strlen(str_) + 1];
+        strcpy_s(this->str, strlen(str_) + 1, str_);
+        //str[strlen(str_)] = '\0';
+    }
+    String(String&& other){
+        cout << "Move constructor\n";
+        this->str = other.str;
+        other.str = nullptr;
+    }
+    String(const String& other){
+        cout << "Copy constructor\n";
+        this->str = new char[strlen(other.str) + 1];
+        strcpy_s(this->str, strlen(other.str) + 1, other.str);
+       // str[strlen(other.str)] = '\0';
+    }
+    ~String(){
+        cout << "Destructor\n";
+        cout << this->str;
+        delete[] this->str;
+    }
+};
+
+String func(char* s){
+    return s;
+}
+
+
+
 
 int main() {
-    cout << sizeof (Range<float>) << '\n';
-    for(auto i: Range<float>(0, 11.9, 1.17))
-        cout << i << "  ";
+//    Tensor<int> t1({2,2,3}, 0), t2(t1);
+//    cout << t2 + t1;
+    cout << sizeof(Tensor<int>) << endl;
+    cout << sizeof(SharedPtr<int>) << "   " << sizeof(Size);
 }
