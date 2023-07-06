@@ -15,4 +15,4 @@ add_executable(UltraGrad
         utils.hpp
         smartptr.hpp
         size.hpp
-        size.cpp)
+        size.cpp deprecated.hpp)

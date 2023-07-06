@@ -6,7 +6,7 @@
 template<typename T>
 class SharedPtr {
 private:
-    T* data = nullptr;
+    T* data_ = nullptr;
     struct Resource {
         T *memory             = nullptr;
         count_type *ref_count = nullptr;
@@ -24,7 +24,6 @@ public:
     SharedPtr() = default;
     explicit SharedPtr(len_type);     // NOTE: memory is allocated only here
     bool reserve(len_type);           // and here if it wasn't already allocated
-    void to_null() = delete;          // not memory safe
 
     SharedPtr(SharedPtr<T>&)           = default;
     SharedPtr(SharedPtr<T>&, len_type);
@@ -35,14 +34,20 @@ public:
 
     T& operator*() const;
     T& operator[](len_type) const;
+    T* data() const;
 
     ~SharedPtr() = default;
 };
 
 template<typename T>
+T *SharedPtr<T>::data() const {
+    return data_;
+}
+
+template<typename T>
 SharedPtr<T>::SharedPtr(SharedPtr<T> & other, len_type length) {
     resource = other.resource;
-    data     = other.data + length;
+    data_     = other.data_ + length;
 }
 
 template<typename T>
@@ -109,18 +114,18 @@ SharedPtr<T>::Resource::~Resource() {
 
 template<typename T>
 T& SharedPtr<T>::operator[](len_type index) const {
-    return this->data[index];
+    return this->data_[index];
 }
 
 template<typename T>
 T& SharedPtr<T>::operator*() const {
-    return *(this->data);
+    return *(this->data_);
 }
 
 template<typename T>
 bool SharedPtr<T>::reserve(len_type length) {
     if (this->resource.reserve(length)) {
-        this->data = resource.memory;
+        this->data_ = resource.memory;
         return true;
     }
     return false;
@@ -129,6 +134,6 @@ bool SharedPtr<T>::reserve(len_type length) {
 template<typename T>
 SharedPtr<T>::SharedPtr(len_type length) {
     resource.reserve(length);
-    data = resource.memory;
+    data_ = resource.memory;
 }
 

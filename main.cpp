@@ -9,6 +9,7 @@
 #include <optional>
 #include <concepts>
 #include <array>
+#include <span>
 
 using std::cout, std::endl, std::vector;
 
@@ -88,59 +89,27 @@ public:
     }
 };
 
-class Base{
+class Ptr {
+    int* memory = nullptr;
+    bool is_owner = true;
 public:
-    Base() {cout << "Base constructor\n";}
-    void hello() {cout<<"hello from base function\n";}
-    ~Base() {cout << "Goodbye from Base destructor\n";}
+    Ptr() = default;
+    Ptr(size_t size) {
+        memory = new int[size];
+    }
+    Ptr(const Ptr& other);              // deep copy
+    Ptr(Ptr&& other);                   // shallow copy
+    Ptr& operator=(const Ptr& other);   // deep copy
+    Ptr& operator=(Ptr&& other);        // shallow copy
+    ~Ptr();
 };
-
-class Derived:public Base{
-public:
-    Derived() {cout << "Derived constructor\n";}
-    void hello()  {cout << "hello from derived function\n";}
-    ~Derived() {cout << "Goodbye from Derived destructor\n";}
-};
-
-#include <cstring>
-class String{
-    char* str = nullptr;
-public:
-    const char* get_string() {return str;}
-    String(const char* str_){
-        cout << "Constructor\n";
-        this->str = new char[strlen(str_) + 1];
-        strcpy_s(this->str, strlen(str_) + 1, str_);
-        //str[strlen(str_)] = '\0';
-    }
-    String(String&& other){
-        cout << "Move constructor\n";
-        this->str = other.str;
-        other.str = nullptr;
-    }
-    String(const String& other){
-        cout << "Copy constructor\n";
-        this->str = new char[strlen(other.str) + 1];
-        strcpy_s(this->str, strlen(other.str) + 1, other.str);
-       // str[strlen(other.str)] = '\0';
-    }
-    ~String(){
-        cout << "Destructor\n";
-        cout << this->str;
-        delete[] this->str;
-    }
-};
-
-String func(char* s){
-    return s;
-}
-
-
-
 
 int main() {
-//    Tensor<int> t1({2,2,3}, 0), t2(t1);
-//    cout << t2 + t1;
-    cout << sizeof(Tensor<int>) << endl;
-    cout << sizeof(SharedPtr<int>) << "   " << sizeof(Size);
+//    Tensor<int> t1({10}, 0);
+//    auto t2 = t1;
+//    t2[1].item() = 100;
+//    cout << t1;
+
 }
+
+

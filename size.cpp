@@ -10,7 +10,7 @@ Size::Size(std::initializer_list<len_type> args) {
     }
 }
 
-inline len_type Size::numel(dim_type start_dim) const {
+len_type Size::numel(dim_type start_dim) const {
     assert(start_dim < this->ndim);
     len_type out = 1;
     for (dim_type i = start_dim; i < this->ndim; i++) out *= this->data[i];
@@ -82,8 +82,8 @@ Size& Size::operator=(const Size & other) {
 }
 
 Size &Size::operator=(Size && other) noexcept {
-    if (this == &other)
-        return *this;
+//    if (this == &other)
+//        return *this;
 
     if (this->data)
         delete[] this->data;
@@ -190,3 +190,24 @@ std::ostream& operator<<(std::ostream& out, const Size& size){
     out << ')' << std::endl;
     return out;
 }
+
+Comparison Size::compare(const Size & other) {
+    if (*this == other)
+        return Comparison::eq;
+    Comparison cmp = Comparison::ne;
+    for (auto i = ndim - 1, j = other.ndim - 1; i >= 0 && j >= 0; --i, --j) {
+        if (data[i] != other.data[j]) {
+            return cmp;
+        }
+        cmp = Comparison::eq;   // NOTE: can be optimized
+    }
+    if (cmp == Comparison::eq) {
+        if (ndim > other.ndim)
+            return Comparison::gt;
+        return Comparison::lt;
+    }
+    return Comparison::ne;
+}
+
+
+
