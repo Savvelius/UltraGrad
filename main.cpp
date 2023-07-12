@@ -15,6 +15,7 @@ using std::cout, std::endl, std::vector;
 
 /*
 TODO: replace all asserts with exceptions or something else
+TODO: in all divisions by zero/logs of zero replace asserts with infinity (use std::numeric_limits<T>::infinity)
 */
 
 
@@ -60,7 +61,6 @@ public:
         return *this;
     }
 };
-
 class Matrix {
 private:
     std::array<int, 2> shape;
@@ -88,7 +88,6 @@ public:
         return out;
     }
 };
-
 class Ptr {
     int* memory = nullptr;
     bool is_owner = true;
@@ -104,12 +103,10 @@ public:
     ~Ptr();
 };
 
-int main() {
-//    Tensor<int> t1({10}, 0);
-//    auto t2 = t1;
-//    t2[1].item() = 100;
-//    cout << t1;
 
+int main() {
+    int arr[5] = {1,2,3,4,5};
+    cout <<  *std::find(arr, arr + 5, 5);
 }
 
 

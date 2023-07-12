@@ -19,7 +19,7 @@ Comparison operator ! (Comparison cmp) {
     return cmp;
 }
 
-// NOTE: it's legal while it doesn't have bool() operator
+// NOTE: it's a legal Comparison doesn't have bool() operator
 Comparison operator && (Comparison cmp, bool val) {
     if (val)
         return cmp;

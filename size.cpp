@@ -4,34 +4,25 @@ Size::Size(std::initializer_list<len_type> args) {
     this->ndim = args.size();
     this->data = new len_type[ndim];
     dim_type i = 0;
-    for (len_type arg: args) {
-        this->data[i] = arg;
-        i++;
-    }
+    std::copy(args.begin(), args.end(), this->data);
 }
 
 len_type Size::numel(dim_type start_dim) const {
     assert(start_dim < this->ndim);
+    if (!ndim)
+        return 0;
     len_type out = 1;
-    for (dim_type i = start_dim; i < this->ndim; i++) out *= this->data[i];
+    std::for_each(data, data + ndim, [&out](len_type x)->void{out *= x;});
     return out;
 }
 
 dim_type Size::index(len_type find) const {
-    for (dim_type i = 0; i < this->ndim; i++){
-        if (this->data[i] == find)
-            return i;
-    }
-    return 0;
+    auto ret = std::find(data, data + ndim, find);
+    return (ret == data + ndim)?0:*ret;
 }
 
 dim_type Size::count(len_type find) const {
-    dim_type out = 0;
-    for (dim_type i = 0; i < this->ndim; i++){
-        if (this->data[i] == find)
-            out ++;
-    }
-    return out;
+    return std::count(this->data, this->data + ndim, find);
 }
 
 Size::~Size() {
@@ -49,14 +40,13 @@ Size::Size(const Size & other, dim_type start_dim) {
     assert(start_dim <= other.ndim);
     this->ndim = other.ndim - start_dim;
     this->data = new len_type[ndim];
-    for (dim_type i = 0; i < ndim; i++)
-        this->data[i] = other.data[i + start_dim];
+    std::copy(other.data + start_dim, other.data + start_dim + ndim,this->data);
 }
 
 Size::Size(const Size & other) {
     this->ndim = other.ndim;
     this->data   = new len_type[ndim];
-    for (int i = 0; i < ndim; i++) data[i] = other.data[i];
+    std::copy(other.data, other.data + ndim, this->data);
 }
 
 Size::Size(Size && other) noexcept {
@@ -71,20 +61,19 @@ Size& Size::operator=(const Size & other) {
     if (this == &other)
         return *this;
 
-    if (this->data)
+    if (this->data) {
+        if (this->ndim == other.ndim)
+            goto copy_data;
         delete[] this->data;
-
+    }
     this->ndim = other.ndim;
     this->data = new len_type[ndim];
-    for (dim_type i = 0; i < ndim; i++)
-        this->data[i] = other[i];
+    copy_data:
+        std::copy(other.data, other.data + ndim, this->data);
     return *this;
 }
 
 Size &Size::operator=(Size && other) noexcept {
-//    if (this == &other)
-//        return *this;
-
     if (this->data)
         delete[] this->data;
 
@@ -98,90 +87,67 @@ Size &Size::operator=(Size && other) noexcept {
 }
 
 Size& Size::operator=(std::initializer_list<len_type> args) {
-    if (this->data)
+    if (this->data) {
+        if (this->ndim == args.size())
+            goto copy_data;
         delete[] this->data;
-
-    this->ndim = args.size();
-    this->data   = new len_type[ndim];
-
-    dim_type i = 0;
-    for (len_type arg: args) {
-        this->data[i] = arg;
-        i ++;
     }
-
+    this->ndim = args.size();
+    this->data = new len_type[ndim];
+    copy_data:
+        std::copy(args.begin(), args.end(), this->data);
     return *this;
 }
 
 bool Size::operator==(std::initializer_list<len_type> args) const {
     if (this->ndim != args.size())
         return false;
-    dim_type i = 0;
-    for (len_type arg: args) {
-        if (this->data[i] != arg)
-            return false;
-        i ++;
-    }
-    return true;
+    return std::equal(args.begin(), args.end(), this->data);
 }
 
 bool Size::operator==(const Size & other) const {
     if (this->ndim != other.dims())
         return false;
-    for (dim_type i = 0; i < ndim; i++) {
-        if (this->data[i] != other[i])
-            return false;
-    }
-    return true;
+    return std::equal(this->data, this->data + ndim,
+                      other.data);
 }
 
 bool Size::operator<(const Size & other) const {
-    for (dim_type i = 0; i < MIN(this->ndim, other.ndim); i++){
-        if (this->data[i] > other[i])
-            return false;
-    }
-    return true;
+    if (this->ndim != other.ndim)
+        return false;
+    return std::equal(this->data, this->data + ndim,
+                      other.data,[](len_type t, len_type o)->bool{ return t < o; });
 }
 
 bool Size::operator>(const Size & other) const {
-    for (dim_type i = 0; i < MIN(this->ndim, other.ndim); i++){
-        if (this->data[i] < other[i])
-            return false;
-    }
-    return true;
+    if (this->ndim != other.ndim)
+        return false;
+    return std::equal(this->data, this->data + ndim,
+                      other.data,[](len_type t, len_type o)->bool{ return t > o; });
 }
 
 bool Size::operator<(std::initializer_list<len_type> args) const {
-    assert(args.size() < this->ndim);
-    dim_type i = 0;
-    for (len_type arg : args){
-        if (this->data[i] > arg)
-            return false;
-        i ++;
-    }
-    return true;
+    if (args.size() != this->ndim)
+        return false;
+    return std::equal(this->data, this->data + ndim,
+                      args.begin(),[](len_type t, len_type o)->bool{ return t < o; });
 }
 
 bool Size::operator>(std::initializer_list<len_type> args) const {
-    assert(args.size() < this->ndim);
-    dim_type i = 0;
-    for (len_type arg : args){
-        if (this->data[i] < arg)
-            return false;
-        i ++;
-    }
-    return true;
+    if (args.size() != this->ndim)
+        return false;
+    return std::equal(this->data, this->data + ndim,
+                      args.begin(),[](len_type t, len_type o)->bool{ return t > o; });
 }
 
 inline len_type Size::operator[](dim_type index) const {
-    assert(index < this->ndim);
+    assert(index < this->ndim && "out of bounds");
     return this->data[index];
 }
 
 inline dim_type Size::dims() const {
     return this->ndim;
 }
-
 
 std::ostream& operator<<(std::ostream& out, const Size& size){
     out << "Size(";
@@ -191,6 +157,7 @@ std::ostream& operator<<(std::ostream& out, const Size& size){
     return out;
 }
 
+// too much branches
 Comparison Size::compare(const Size & other) {
     if (*this == other)
         return Comparison::eq;
@@ -209,5 +176,32 @@ Comparison Size::compare(const Size & other) {
     return Comparison::ne;
 }
 
+ContiguousIterator<len_type> Size::begin() {
+    return {this->data};
+}
 
+ContiguousIterator<len_type> Size::end() {
+    return {this->data + this->dims()};
+}
 
+Size::Size(dim_type ndim_) {
+    assert(ndim_ != 0);
+    this->ndim = ndim_;
+    this->data = new len_type[ndim_];
+}
+
+// NOTE: a lot of branching
+inline Size Size::copy_except(dim_type skip, bool keepdim) const {
+    assert(skip < ndim);
+    Size out(ndim - !keepdim);
+    for (int i = 0, j = 0; i < ndim; ++i, ++j) {
+        if (i == skip) {
+            if (!keepdim)
+                --j;
+            else
+                out.data[j] = 1;
+        } else
+            out.data[j] = data[i];
+    }
+    return out;
+}
