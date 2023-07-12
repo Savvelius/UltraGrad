@@ -7,7 +7,7 @@
 #include <vector>
 #include <algorithm>
 #include <optional>
-#include <concepts>
+#include "timer.hpp"
 #include <array>
 #include <span>
 
@@ -17,8 +17,6 @@ using std::cout, std::endl, std::vector;
 TODO: replace all asserts with exceptions or something else
 TODO: in all divisions by zero/logs of zero replace asserts with infinity (use std::numeric_limits<T>::infinity)
 */
-
-
 template<typename T>
 void printVec(vector<T> vec) {
     cout << '[';
@@ -27,7 +25,6 @@ void printVec(vector<T> vec) {
 	}
 	cout << ']' << std::endl;
 }
-
 template<typename T, uint32_t size>
 void printArr(T arr[size]){
     cout << '[';
@@ -37,30 +34,6 @@ void printArr(T arr[size]){
     cout << ']' << std::endl;
 }
 
-class Test {
-private:
-    int id = 0;
-public:
-    Test(int x = 0) {id = x; cout << "Def constr " << id << endl;}
-    ~Test() {cout << "Destr " << id << endl;}
-    Test(Test&& t) noexcept {
-        cout << "move constr " << id << endl;
-        id = t.id;
-        t.id = 0;
-    }
-    Test(const Test& t){
-        cout << "copy constr " << id << endl;
-        this->id = t.id;
-    }
-    Test& operator=(const Test& other){
-        cout << "Copy assign " << id << endl;
-        return *this;
-    }
-    Test& operator=(Test&& other){
-        cout << "Move assign " << id << endl;
-        return *this;
-    }
-};
 class Matrix {
 private:
     std::array<int, 2> shape;
@@ -103,10 +76,43 @@ public:
     ~Ptr();
 };
 
+void callable(int& accum, std::function<void(int)> op) {
+    int arr[2][5] = {1,2,3,4,5,6,7,8,9,10};
+    int maxes[2] = {0};
+    auto temp = accum;
+    for (int i = 0; i < 2; ++i) {
+        for (int j = 0; j < 5; ++j) {
+            op(arr[i][j]);
+        }
+        maxes[i] = accum;
+        accum = temp;
+    }
+    cout << "maxes[0] = " << maxes[0] << " | maxes[1] = " << maxes[1] << endl;
+}
+
+void caller() {
+    int acc = 0;
+    callable(acc, [&acc](int x)->void{acc += x;});
+}
 
 int main() {
-    int arr[5] = {1,2,3,4,5};
-    cout <<  *std::find(arr, arr + 5, 5);
+    Tensor<float> t1({2, 2, 3}, 0.0);
+    cout << t1 << t1.sum(2, false);
+//    caller();
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

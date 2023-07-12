@@ -69,15 +69,15 @@ Size& Size::operator=(const Size & other) {
     this->ndim = other.ndim;
     this->data = new len_type[ndim];
     copy_data:
-        std::copy(other.data, other.data + ndim, this->data);
+    std::copy(other.data, other.data + ndim, this->data);
     return *this;
 }
 
-Size &Size::operator=(Size && other) noexcept {
+Size& Size::operator=(Size && other) noexcept {
     if (this->data)
         delete[] this->data;
 
-    this->ndim = other.ndim;
+    this->ndim   = other.ndim;
     this->data   = other.data;
 
     other.data = nullptr;
@@ -95,7 +95,7 @@ Size& Size::operator=(std::initializer_list<len_type> args) {
     this->ndim = args.size();
     this->data = new len_type[ndim];
     copy_data:
-        std::copy(args.begin(), args.end(), this->data);
+    std::copy(args.begin(), args.end(), this->data);
     return *this;
 }
 
@@ -158,7 +158,7 @@ std::ostream& operator<<(std::ostream& out, const Size& size){
 }
 
 // too much branches
-Comparison Size::compare(const Size & other) {
+Comparison Size::compare(const Size & other) const {
     if (*this == other)
         return Comparison::eq;
     Comparison cmp = Comparison::ne;
@@ -176,11 +176,11 @@ Comparison Size::compare(const Size & other) {
     return Comparison::ne;
 }
 
-ContiguousIterator<len_type> Size::begin() {
+ContiguousIterator<len_type> Size::begin() const {
     return {this->data};
 }
 
-ContiguousIterator<len_type> Size::end() {
+ContiguousIterator<len_type> Size::end() const {
     return {this->data + this->dims()};
 }
 
@@ -191,7 +191,7 @@ Size::Size(dim_type ndim_) {
 }
 
 // NOTE: a lot of branching
-inline Size Size::copy_except(dim_type skip, bool keepdim) const {
+Size Size::copy_except(dim_type skip, bool keepdim) const {
     assert(skip < ndim);
     Size out(ndim - !keepdim);
     for (int i = 0, j = 0; i < ndim; ++i, ++j) {

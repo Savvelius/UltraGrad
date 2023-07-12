@@ -12,6 +12,7 @@
 #include <utility>
 #include <cmath>
 #include <limits>
+#include <thread>
 
 #define MIN(x, y) ((x<y)?x:y)
 //#define MAX(x, y) ((x<y)?y:x)
@@ -21,6 +22,10 @@ typedef int      idx_type;
 typedef uint16_t count_type;
 typedef size_t   len_type;
 typedef uint8_t  dim_type;
+
+namespace globals {
+    extern bool CPU_MULTITHREAD;
+}
 
 template<class T>
 concept Comparable =
@@ -44,6 +49,50 @@ concept Algebraic =
         } && Comparable<T>;
 
 
+extern struct BIGGEST_{
+    template<typename T>
+    bool operator > (T other) {
+        return true;
+    }
+
+    template<typename T>
+    friend bool operator > (T other, BIGGEST_ self) {
+        return false;
+    }
+
+    template<typename T>
+    bool operator < (T other) {
+        return false;
+    }
+
+    template<typename T>
+    friend bool operator < (T other, BIGGEST_ self) {
+        return true;
+    }
+} BIGGEST;
+
+extern struct SMALLEST_ {
+    template<typename T>
+    bool operator > (T other) {
+        return false;
+    }
+
+    template<typename T>
+    friend bool operator > (T other, SMALLEST_ self) {
+        return true;
+    }
+
+    template<typename T>
+    bool operator < (T other) {
+        return true;
+    }
+
+    template<typename T>
+    friend bool operator < (T other, SMALLEST_ self) {
+        return false;
+    }
+} SMALLEST;
+
 enum class Comparison {
     lt,     // less than
     le,     // less or equal than
@@ -61,11 +110,17 @@ enum class State {
 
 namespace util {
     template<typename T>
-    inline void apply_ip(T *mutated, std::size_t size, T *other, std::function<void(T &, T)> bin_op) {
+    inline void apply_bin_ip(T* mutated, std::size_t size, T *other, std::function<void(T &, T)> bin_op) {
         for (std::size_t i = 0; i < size; i++)
             bin_op(mutated[i], other[i]);
     }
+    template<typename T, typename U>
+    inline void apply_bin(T* first, std::size_t size, T* second, T* out, std::function<U(T, T)> bin_op) {
+        for (std::size_t i = 0; i < size; i++)
+            out[i] = bin_op(first[i], second[i]);
+    }
 }
+
 template<Algebraic T>
 class Tensor;
 

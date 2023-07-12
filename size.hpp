@@ -41,14 +41,14 @@ public:
     [[nodiscard]] Size slice(dim_type start, dim_type end) const;
     [[nodiscard]] Size slice(dim_type start) const;
     [[nodiscard]] Size copy_except(dim_type, bool keepdim = false) const;
-    [[nodiscard]] Comparison compare(const Size&);
+    [[nodiscard]] Comparison compare(const Size&) const;
     [[nodiscard]] dim_type dims() const;
     [[nodiscard]] len_type numel(dim_type start_dim = 0) const;
     [[nodiscard]] dim_type index(len_type) const;
     [[nodiscard]] dim_type count(len_type) const;
 
-    ContiguousIterator<len_type> begin();
-    ContiguousIterator<len_type> end();
+    ContiguousIterator<len_type> begin() const;
+    ContiguousIterator<len_type> end() const;
 
     ~Size();
 

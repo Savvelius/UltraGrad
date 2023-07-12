@@ -1,5 +1,7 @@
 #include "utils.hpp"
 
+bool globals::CPU_MULTITHREAD = true;
+
 Comparison operator ! (Comparison cmp) {
     using comp = Comparison;
     switch (cmp) {

@@ -20,36 +20,41 @@ public:
     explicit Tensor(const Size&);
     explicit Tensor(len_type);
 
-    Comparison compare (const Tensor<T>&);
-    T& item() const;
+    Comparison compare (const Tensor<T>&) const;
+    [[nodiscard]] T& item() const;
+    [[nodiscard]] T& at(len_type) const;
 	[[nodiscard]] Size     shape() const;
     [[nodiscard]] dim_type dims()  const;
     [[nodiscard]] len_type numel(dim_type start_dim = 0) const;
     [[nodiscard]] len_type getOffset(std::initializer_list<idx_type>) const;
+    [[nodiscard]] len_type get_num_threads() const;     // FIXME implement more sophisticated alg
+    [[nodiscard]] bool all() const;
+    ContiguousIterator<T> begin() const = delete;
+    ContiguousIterator<T> end() const = delete;
 
-    Tensor<T> empty_like() = delete;
+    Tensor<T> empty_like() const = delete;
 	Tensor<T>& operator = (const Tensor&);
 	Tensor<T>& operator = (T);
 	Tensor<T>& operator = (Tensor&&) noexcept;
 
-    // NOTE: all these ops share pointer to data. Check for it.
-    Tensor<T> operator [] (idx_type);       // Ready
-	Tensor<T> operator [] (std::initializer_list<len_type>);    // no multiple arguments until c++23
-    Tensor<T> operator [] (const Tensor<bool>&) = delete;       // THINK: maybe useless(move version is more popular)
-    Tensor<T> operator [] (Tensor<bool>&&)      = delete;       // will be implemented after boolean ops
-    [[deprecated]] Tensor<T> operator [] (Range<len_type>&&);// indexing array without creating new Range instance
+    Tensor<T> operator [] (idx_type) const;       // Ready
+	Tensor<T> operator [] (std::initializer_list<len_type>) const;    // no multiple arguments until c++23
+    Tensor<T> operator [] (const Tensor<bool>&) const = delete;       // THINK: maybe useless(move version is more popular)
+    Tensor<T> operator [] (Tensor<bool>&&)      const = delete;       // will be implemented after boolean ops
+    [[deprecated]] Tensor<T> operator [] (Range<len_type>&&) const = delete;       // FIXME: deprecate custom class, replace with built-in range
 
-    Tensor<bool> operator == (const Tensor<T>&) const = delete;
+    Tensor<bool> operator == (const Tensor<T>&) const;
     Tensor<bool> operator == (T)                const = delete;
     Tensor<bool> operator > (const Tensor<T>&)  const = delete;
     Tensor<bool> operator > (T)                 const = delete;
     Tensor<bool> operator < (const Tensor<T>&)  const = delete;
     Tensor<bool> operator < (T)                 const = delete;
 
-    Tensor<T>  bin_op(const Tensor<T>&, std::function<void(T&, T)>) const;
-    Tensor<T>& bin_op_ip(const Tensor<T>&, std::function<void(T&, T)>);
-    Tensor<T>  un_op(std::function<void(T&)>) const;
-    Tensor<T>& un_op_ip(std::function<void(T&)>);
+    // NOTE: might be beneficial to change them to rvalue refs
+    Tensor<T>  bin_op(const Tensor<T>&, const std::function<void(T&, T)>&) const;
+    Tensor<T>& bin_op_ip(const Tensor<T>&, const std::function<void(T&, T)>&);
+    Tensor<T>  un_op(const std::function<void(T&)>&) const;
+    Tensor<T>& un_op_ip(const std::function<void(T&)>&);
 
     Tensor<T> operator + (const Tensor<T>&) const;        // continue from here
     Tensor<T> operator + (T) const;
@@ -75,25 +80,28 @@ public:
     Tensor<T>& operator /= (const Tensor<T>&);
     Tensor<T>& operator /= (T);
 
-    Tensor<T> relu();
+    Tensor<T> relu() const;
     // NOTE: works properly only with float/double
-    Tensor<T> e();
-    Tensor<T> tanh();
-    Tensor<T> sigmoid();
-    Tensor<T> bmm(const Tensor<T>&) = delete;   // batch matrix multiplication
+    Tensor<T> e() const;
+    Tensor<T> tanh() const;
+    Tensor<T> sigmoid() const;
+    Tensor<T> matmul(const Tensor<T>&) const;   // batch matrix multiplication
 
     // reductors
-    Tensor<T> reduce_op(T&, std::function<void(T)>, dim_type dim = 0, bool for_all = true);  // generalization would be nice
-    Tensor<T> sum(dim_type dim = 0, bool for_all = true);
-    Tensor<T> max(dim_type dim = 0, bool for_all = true);
-    Tensor<T> min(dim_type dim = 0, bool for_all = true);
-    Tensor<T> argmax(dim_type dim = 0, bool for_all = true);
-    Tensor<T> argmin(dim_type dim = 0, bool for_all = true);
+    Tensor<T> reduce_op(T&, const std::function<void(T)>&, dim_type dim = 0, bool for_all = false, bool keepdim = false) const;  // generalization would be nice
+    Tensor<T> sum(dim_type dim = 0, bool for_all = false, bool keepdim = false) const;
+    Tensor<T> product(dim_type dim = 0, bool for_all = false, bool keepdim = false) const;
+    // TODO: how to pass accumulator?BIGGEST/SMALLEST inside a wrapper or std::numeric_limits<T>?
+    Tensor<T> max(dim_type dim = 0, bool for_all = true, bool keepdim = false) const;
+    Tensor<T> min(dim_type dim = 0, bool for_all = true, bool keepdim = false) const;
+    Tensor<T> argmax(dim_type dim = 0, bool for_all = true, bool keepdim = false) const;
+    Tensor<T> argmin(dim_type dim = 0, bool for_all = true, bool keepdim = false) const;
 
     void backward() = delete;
 
 	~Tensor();
 
+    friend Tensor<bool>;
     friend std::ostream& operator<<(std::ostream& out, const Tensor<T>& object) {
         //FIXME outputs tensor as 1d array
         // should probably be recursive
@@ -116,9 +124,55 @@ private:
     Tensor(T*&, Size&&);
 };
 
+template<Algebraic T>
+Tensor<T> Tensor<T>::product(dim_type dim, bool for_all, bool keepdim) const {
+    T accumulate = 1;
+    return this->reduce_op(accumulate, [&accumulate](T x)->void{ accumulate *= x; },dim, for_all, keepdim);
+}
+
+template<Algebraic T>
+Tensor<T> Tensor<T>::matmul(const Tensor<T> & other) const {
+    assert(dims() == 2 && dims() == other.dims() && "for now implemented only for 2d arrays");
+    assert(size[1] == other.size[0] && "shapes of 2d arrays don't match");
+    Tensor<T> out(Size({size[0], other.size[1]}));
+    if (globals::CPU_MULTITHREAD) {
+        assert(0);
+        std::vector<std::thread> threads;
+    } else {
+        assert(0);
+    }
+    return out;
+}
+
+template<Algebraic T>
+inline T& Tensor<T>::at(len_type index) const {
+    assert(index < numel());
+    return data[index];
+}
+
+template<Algebraic T>
+bool Tensor<T>::all() const {
+    return std::all_of(data, data + numel(), [](T x)->bool{ return x; });
+}
+
+// FIXME can also be implemented with apply_bin
+template<Algebraic T>
+Tensor<bool> Tensor<T>::operator==(const Tensor<T> & other) const {
+    assert(size == other.size);
+    Tensor<bool> out(size);
+    for (len_type i = 0; i < numel(); ++i)
+        out.at(i) = (data[i] == other.data[i]);
+    return out;
+}
+
+template<Algebraic T>
+len_type Tensor<T>::get_num_threads() const {
+    return *std::max_element(size.begin(), size.end());
+}
+
 // for now not implementing keepdim
 template<Algebraic T>
-Tensor<T> Tensor<T>::reduce_op(T& accumulate, std::function<void(T)> reduction, dim_type dim, bool for_all) {
+Tensor<T> Tensor<T>::reduce_op(T& accumulate, const std::function<void(T)>& reduction, dim_type dim, bool for_all, bool keepdim) const {
     assert(dim < this->dims() && "Dimension out of bounds (reduce_op)");
     if (for_all) {
         std::for_each(data, data + numel(), reduction);
@@ -126,36 +180,49 @@ Tensor<T> Tensor<T>::reduce_op(T& accumulate, std::function<void(T)> reduction, 
         out.data[0] = accumulate;
         return out;
     }
-    // implement dimension-wise
-    Tensor<T> out(this->size.copy_except(dim));
-    assert(0 && "not implemented");
+    Tensor<T> out(this->size.copy_except(dim, keepdim));
+    auto temp = accumulate;
+    auto block_s = numel(dim);     // galochka
+    auto step = block_s / size[dim];
+    // FIXME: complicated as fuck
+    len_type count = 0;
+    for (int block = 0; block < numel(); block += block_s) {   // galochka
+        for (int i = 0; i <  step; ++i) {
+            for (int delta = 0; delta < block_s; delta += step) {
+                assert(block + i + delta < numel());
+                reduction(data[block + i + delta]);
+            }
+            out.data[count] = accumulate;
+            accumulate = temp;
+            ++count;
+        }
+    }
     return out;
 }
 
 template<Algebraic T>
-Tensor<T> Tensor<T>::sum(dim_type dim, bool for_all) {
-    assert(0 && "Not implemented");
+Tensor<T> Tensor<T>::sum(dim_type dim, bool for_all, bool keepdim) const {
     T accumulate = 0;
-    return this->reduce_op(accumulate, [&accumulate](T x)->void{ accumulate += x; }, dim, for_all);
+    return this->reduce_op(accumulate, [&accumulate](T x)->void{ accumulate += x; },dim, for_all, keepdim);
 }
 
 template<Algebraic T>
-Tensor<T> Tensor<T>::sigmoid() {
+Tensor<T> Tensor<T>::sigmoid() const {
     return this->un_op([](T& x)->void{ x = 1 / (exp(-x) + 1); });
 }
 
 template<Algebraic T>
-Tensor<T> Tensor<T>::tanh() {
-    return this->un_op([](T& x)->void{ T temp = exp(2*x); x = (temp - 1) / (temp  +1); });
+Tensor<T> Tensor<T>::tanh() const {
+    return this->un_op([](T& x)->void{ T temp = exp(2*x); x = (temp - 1) / (temp + 1); });
 }
 
 template<Algebraic T>
-Tensor<T> Tensor<T>::e() {
+Tensor<T> Tensor<T>::e() const {
     return this->un_op([](T& x)->void{ x = exp(x); });
 }
 
 template<Algebraic T>
-Tensor<T> Tensor<T>::relu() {
+Tensor<T> Tensor<T>::relu() const {
     return this->un_op([](T& x)->void{x = (x>0)?x:0;});
 }
 
@@ -232,9 +299,21 @@ Tensor<T> Tensor<T>::operator+(T other) const {
     return out.un_op_ip([other](T& x)->void{ x += other; });
 }
 
+// FIXME
 template<Algebraic T>
-inline Tensor<T>& Tensor<T>::un_op_ip(std::function<void(T &)> operation) {
-    std::for_each(data, data + numel(), operation);
+inline Tensor<T>& Tensor<T>::un_op_ip(const std::function<void(T &)>& operation) {
+    if (globals::CPU_MULTITHREAD) {
+        const auto num_th = this->get_num_threads();
+        auto step = numel() / num_th;
+        std::vector<std::thread> threads(num_th);
+        auto f = [this, operation, step] (int off) -> void{ std::for_each(data + off, data + off + step, operation); };
+        for (int off = 0, i = 0; off < numel(); off += step, ++i)
+            threads[i] = std::thread(f, off);
+        for (auto& th: threads)
+            th.join();
+    } else {
+        std::for_each(data, data + numel(), operation);
+    }
     return *this;
 }
 
@@ -257,13 +336,13 @@ inline T& Tensor<T>::item() const {
 
 // FIXME: if compare operator isn't use anywhere else, inline it into this function and remove Compare enum class
 template<Algebraic T>
-inline Tensor<T>& Tensor<T>::bin_op_ip(const Tensor<T>& other, std::function<void(T&, T)> operation) {
+inline Tensor<T>& Tensor<T>::bin_op_ip(const Tensor<T>& other,const std::function<void(T&, T)>& operation) {
     Comparison state = this->compare(other);
     T* out; len_type out_s;
     T* min_t; len_type min_s;
     switch (state) {
         case Comparison::eq: {
-            util::apply_ip<T>(data, numel(), other.data, operation);
+            util::apply_bin_ip<T>(data, numel(), other.data, operation);
             return *this;
         }
         case Comparison::gt: {
@@ -284,14 +363,27 @@ inline Tensor<T>& Tensor<T>::bin_op_ip(const Tensor<T>& other, std::function<voi
             assert(0 && "Can't happen");
         }
     }
-    for (int block = 0; block < out_s; block += min_s)
-        for (int i = 0; i < min_s; i++)
-            operation(out[block + i], min_t[i]);
+    if (globals::CPU_MULTITHREAD) {
+        auto f = [&out, &min_t, min_s, operation](len_type block) -> void {
+            for (int i = 0; i < min_s; ++i)
+                operation(out[block + i], min_t[i]);
+        };
+        std::vector<std::thread> threads(out_s / min_s);
+        for (len_type block = 0, i = 0; block < out_s; block += min_s, ++i)
+            threads[i] = std::thread(f, block);
+        for (auto& th: threads )
+            th.join();
+    }
+    else {
+        for (len_type block = 0; block < out_s; block += min_s)
+            for (int i = 0; i < min_s; i++)
+                operation(out[block + i], min_t[i]);
+    }
     return *this;
 }
 
 template<Algebraic T>
-Comparison Tensor<T>::compare(const Tensor<T> & other) {
+Comparison Tensor<T>::compare(const Tensor<T> & other) const {
     return this->size.compare(other.size);
 }
 
@@ -312,14 +404,14 @@ Tensor<T>& Tensor<T>::operator+=(const Tensor<T> & other) {
 }
 
 template<Algebraic T>
-inline Tensor<T> Tensor<T>::un_op(std::function<void(T&)> operation) const {
+inline Tensor<T> Tensor<T>::un_op(const std::function<void(T&)>& operation) const {
     Tensor<T> out(*this);
     return out.un_op_ip(operation);
 }
 
 // FIXME: implement a lot of helper - function and optimize the process, which is bloated for now
 template<Algebraic T>
-Tensor<T> Tensor<T>::bin_op(const Tensor<T> & other, std::function<void(T&, T)> operation) const {
+Tensor<T> Tensor<T>::bin_op(const Tensor<T> & other, const std::function<void(T&, T)>& operation) const {
     Tensor<T> out(*this);
     return out.bin_op_ip(other, operation);
 }
@@ -336,20 +428,9 @@ Tensor<T>::Tensor(len_type length) {
     this->size = Size({length});
 }
 
-template<Algebraic T>
-[[deprecated("will be removed soon")]] Tensor<T> Tensor<T>::operator[](Range<len_type> && index) {
-    return *this;
-    auto info = index.get_info();
-    assert(info.start >= 0);
-    assert(info.stop < this->size[0]);
-    Tensor<T> t(index.size() * this->numel(1));
-
-    return std::move(t);
-}
-
 // FIXME: checkme
 template<Algebraic T>
-Tensor<T> Tensor<T>::operator[](idx_type index) {
+Tensor<T> Tensor<T>::operator[](idx_type index) const {
     assert(index < this->size[0]);
     T* p_out;
     if (this->dims() == 1)
@@ -417,7 +498,7 @@ inline Tensor<T>& Tensor<T>::operator=(const Tensor& other) {
     if (this == &other)
         return *this;
     if (this->data) {
-        if (this->size == other.size)
+        if (this->size == other.size)   // FIXME: if numels match, also no need for realloc
             goto copy_data;
         delete[] this->data;
     }
@@ -433,21 +514,20 @@ inline Tensor<T>& Tensor<T>::operator=(Tensor&& other) noexcept {
     if (this->data)
         delete[] this->data;
     this->data = other.data;
-    this->size = std::move(other.size);
+    this->size = std::move(other.size);     // nulls other's size
     other.data = nullptr;
 	return *this;
 }
 
 template<Algebraic T>
-inline Tensor<T> Tensor<T>::operator[](std::initializer_list<len_type> indexes)  {
+inline Tensor<T> Tensor<T>::operator[](std::initializer_list<len_type> indexes) const {
 	assert(this->dims() != 0 && "can't subscript scalar tensor");
 	assert(indexes.size() <= this->dims() && "too many indexes to subscript");
 	//FIXME, horrible match checking
     len_type arg_size = indexes.size();
     assert(size > indexes && "Not compatible sizes");
     T* p_out = this->data + this->getOffset(indexes);
-    Size s_out(this->size, arg_size);
-	return Tensor<T>(p_out, std::move(s_out));
+	return Tensor<T>(p_out, Size(this->size, arg_size));
 }
 
 template<Algebraic T>
