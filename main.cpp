@@ -76,29 +76,13 @@ public:
     ~Ptr();
 };
 
-void callable(int& accum, std::function<void(int)> op) {
-    int arr[2][5] = {1,2,3,4,5,6,7,8,9,10};
-    int maxes[2] = {0};
-    auto temp = accum;
-    for (int i = 0; i < 2; ++i) {
-        for (int j = 0; j < 5; ++j) {
-            op(arr[i][j]);
-        }
-        maxes[i] = accum;
-        accum = temp;
-    }
-    cout << "maxes[0] = " << maxes[0] << " | maxes[1] = " << maxes[1] << endl;
-}
-
-void caller() {
-    int acc = 0;
-    callable(acc, [&acc](int x)->void{acc += x;});
-}
 
 int main() {
-    Tensor<float> t1({2, 2, 3}, 0.0);
-    cout << t1 << t1.sum(2, false);
-//    caller();
+//    Tensor<float> t1({2, 1, 2, 3}, 0.0);
+//    cout << t1 << t1.max(2, false);
+//    cout << t1.squeeze(1);
+    struct{vector<int> v;} s;
+    cout << sizeof (s);
 }
 
 

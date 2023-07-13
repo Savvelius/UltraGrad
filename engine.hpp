@@ -27,10 +27,12 @@ public:
     [[nodiscard]] dim_type dims()  const;
     [[nodiscard]] len_type numel(dim_type start_dim = 0) const;
     [[nodiscard]] len_type getOffset(std::initializer_list<idx_type>) const;
-    [[nodiscard]] len_type get_num_threads() const;     // FIXME implement more sophisticated alg
+    [[nodiscard]] len_type get_num_threads() const;     // Implement more sophisticated alg
     [[nodiscard]] bool all() const;
-    ContiguousIterator<T> begin() const = delete;
-    ContiguousIterator<T> end() const = delete;
+
+    // Those two are for range compatibility -> span usage
+    ContiguousIterator<T> begin() const;
+    ContiguousIterator<T> end() const;
 
     Tensor<T> empty_like() const = delete;
 	Tensor<T>& operator = (const Tensor&);
@@ -39,9 +41,9 @@ public:
 
     Tensor<T> operator [] (idx_type) const;       // Ready
 	Tensor<T> operator [] (std::initializer_list<len_type>) const;    // no multiple arguments until c++23
-    Tensor<T> operator [] (const Tensor<bool>&) const = delete;       // THINK: maybe useless(move version is more popular)
+    Tensor<T> operator [] (const Tensor<bool>&) const = delete;       // maybe useless(move version is more popular)
     Tensor<T> operator [] (Tensor<bool>&&)      const = delete;       // will be implemented after boolean ops
-    [[deprecated]] Tensor<T> operator [] (Range<len_type>&&) const = delete;       // FIXME: deprecate custom class, replace with built-in range
+    [[deprecated]] Tensor<T> operator [] (Range<len_type>&&) const = delete;       // Deprecated custom class, replace with built-in range
 
     Tensor<bool> operator == (const Tensor<T>&) const;
     Tensor<bool> operator == (T)                const = delete;
@@ -81,7 +83,7 @@ public:
     Tensor<T>& operator /= (T);
 
     Tensor<T> relu() const;
-    // NOTE: works properly only with float/double
+    // NOTE: works properly only with float-like numbers
     Tensor<T> e() const;
     Tensor<T> tanh() const;
     Tensor<T> sigmoid() const;
@@ -91,11 +93,22 @@ public:
     Tensor<T> reduce_op(T&, const std::function<void(T)>&, dim_type dim = 0, bool for_all = false, bool keepdim = false) const;  // generalization would be nice
     Tensor<T> sum(dim_type dim = 0, bool for_all = false, bool keepdim = false) const;
     Tensor<T> product(dim_type dim = 0, bool for_all = false, bool keepdim = false) const;
-    // TODO: how to pass accumulator?BIGGEST/SMALLEST inside a wrapper or std::numeric_limits<T>?
+    // TODO: implement those two with special return types that contain indices(argmax/argmin) for backprop
     Tensor<T> max(dim_type dim = 0, bool for_all = true, bool keepdim = false) const;
     Tensor<T> min(dim_type dim = 0, bool for_all = true, bool keepdim = false) const;
-    Tensor<T> argmax(dim_type dim = 0, bool for_all = true, bool keepdim = false) const;
-    Tensor<T> argmin(dim_type dim = 0, bool for_all = true, bool keepdim = false) const;
+    Tensor<len_type> argmax(dim_type dim = 0, bool for_all = true, bool keepdim = false) const = delete;
+    Tensor<len_type> argmin(dim_type dim = 0, bool for_all = true, bool keepdim = false) const = delete;
+
+    // Next functions just change the size object - trivial
+    Tensor<T> unsqueeze(dim_type) const;
+    Tensor<T> squeeze(dim_type) const;
+    Tensor<T> reshape(dim_type) const;
+    // Next are non-trivial functions
+    Tensor<T> permute(std::initializer_list<dim_type>) const;
+    Tensor<T> transpose() const;
+
+    // Next are functions that mutate and concatenate tensors
+    Tensor<T> concatenate(const Tensor<T>&, dim_type) const;
 
     void backward() = delete;
 
@@ -121,8 +134,36 @@ private:
     // place for another T* holding gradient values: T* grad;
     // place for a boolean grad flag: bool requires_grad = false;
     // place for (some version of array) of parent Tensors.
-    Tensor(T*&, Size&&);
+    Tensor(const T*, Size&&, bool is_owner_ = false);   // FIXME: wtf is wrong with this constructor???
 };
+
+template<Algebraic T>
+ContiguousIterator<T> Tensor<T>::end() const {
+    return { this->data + numel() };
+}
+
+template<Algebraic T>
+ContiguousIterator<T> Tensor<T>::begin() const {
+    return { this->data };
+}
+
+template<Algebraic T>
+Tensor<T> Tensor<T>::squeeze(dim_type dim) const {
+    assert(size[dim] == 1);
+    return Tensor<T>(data, size.remove(dim));
+}
+
+template<Algebraic T>
+Tensor<T> Tensor<T>::min(dim_type dim, bool for_all, bool keepdim) const {
+    T accumulate = std::numeric_limits<T>::max();
+    return this->reduce_op(accumulate, [&accumulate](T x)->void{ accumulate = MIN(accumulate, x); },dim, for_all, keepdim);
+}
+
+template<Algebraic T>
+Tensor<T> Tensor<T>::max(dim_type dim, bool for_all, bool keepdim) const {
+    T accumulate = std::numeric_limits<T>::min();
+    return this->reduce_op(accumulate, [&accumulate](T x)->void{ accumulate = MAX(accumulate, x); },dim, for_all, keepdim);
+}
 
 template<Algebraic T>
 Tensor<T> Tensor<T>::product(dim_type dim, bool for_all, bool keepdim) const {
@@ -180,7 +221,7 @@ Tensor<T> Tensor<T>::reduce_op(T& accumulate, const std::function<void(T)>& redu
         out.data[0] = accumulate;
         return out;
     }
-    Tensor<T> out(this->size.copy_except(dim, keepdim));
+    Tensor<T> out(this->size.remove(dim, keepdim));
     auto temp = accumulate;
     auto block_s = numel(dim);     // galochka
     auto step = block_s / size[dim];
@@ -447,11 +488,12 @@ inline dim_type Tensor<T>::dims() const {
 }
 
 // NOTE: no ownership
+// FIXME: why new_data = nullptr was a thing???
 template<Algebraic T>
-Tensor<T>::Tensor(T*& new_data, Size&& new_shape)
+Tensor<T>::Tensor(const T* new_data, Size&& new_shape, bool is_owner_)
     : data{new_data}, size{new_shape} {
-    this->is_owner = false;
-    new_data = nullptr;
+    this->is_owner = is_owner_;
+//    new_data = nullptr;
 }
 
 template<Algebraic T>

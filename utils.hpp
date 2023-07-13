@@ -15,7 +15,7 @@
 #include <thread>
 
 #define MIN(x, y) ((x<y)?x:y)
-//#define MAX(x, y) ((x<y)?y:x)
+#define MAX(x, y) ((x<y)?y:x)
 
 typedef int      idx_type;
 //typedef uint32_t uidx_type;
