@@ -9,8 +9,6 @@ add_executable(UltraGrad
         #engine.cpp
         engine.hpp
         main.cpp
-        #tensor.cpp
-        #tensor.hpp
         utils.cpp
         utils.hpp
         smartptr.hpp

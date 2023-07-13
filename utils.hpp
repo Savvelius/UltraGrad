@@ -13,6 +13,8 @@
 #include <cmath>
 #include <limits>
 #include <thread>
+#include <iterator>
+#include <span>
 
 #define MIN(x, y) ((x<y)?x:y)
 #define MAX(x, y) ((x<y)?y:x)
@@ -48,6 +50,12 @@ concept Algebraic =
             { self / other } -> std::convertible_to<T>;
         } && Comparable<T>;
 
+template<class T>
+concept InputContainer =
+        requires(T self) {
+            {self.begin()} -> std::convertible_to<std::input_iterator_tag>;
+            {self.end()}   -> std::convertible_to<std::input_iterator_tag>;
+        };
 
 extern struct BIGGEST_{
     template<typename T>
@@ -109,6 +117,23 @@ enum class State {
 };
 
 namespace util {
+#if 0
+    template<typename T>
+    class span {
+        std::input_iterator_tag start;
+        std::input_iterator_tag finish;
+    public:
+        span(const InputContainer auto& container)
+            : start{container.begin()}, finish{container.end()} {}
+        std::input_iterator_tag begin() const {
+            return start;
+        }
+        std::input_iterator_tag end() const {
+            return finish;
+        }
+
+    };
+#endif
     template<typename T>
     inline void apply_bin_ip(T* mutated, std::size_t size, T *other, std::function<void(T &, T)> bin_op) {
         for (std::size_t i = 0; i < size; i++)
@@ -118,6 +143,12 @@ namespace util {
     inline void apply_bin(T* first, std::size_t size, T* second, T* out, std::function<U(T, T)> bin_op) {
         for (std::size_t i = 0; i < size; i++)
             out[i] = bin_op(first[i], second[i]);
+    }
+    template<typename T>
+    inline T foldl(const std::function<T(T, T)>& bin_op, T start, std::span<T> container) {
+        std::for_each(container.begin(), container.end(),
+                      [&start, &bin_op](T x)->void{ start = bin_op(start, x); });
+        return start;
     }
 }
 
@@ -159,7 +190,7 @@ public:
 // begin, end - return iterator, data - returns raw pointer, size - returns size of array
 template<typename  Elem>
 class ContiguousIterator {
-    Elem* ptr = nullptr;
+    const Elem* ptr = nullptr;
 public:
     using value_type = Elem;
     using element_type = Elem;
@@ -167,8 +198,8 @@ public:
     using contiguous_iterator_category = std::contiguous_iterator_tag;
 public:
     ContiguousIterator() = default;
-    ContiguousIterator(Elem* new_ptr)
-            : ptr{new_ptr} {}
+    ContiguousIterator(const Elem* new_ptr)
+            : ptr{new_ptr}  {}
 
     Elem* operator->() const {
         return ptr;

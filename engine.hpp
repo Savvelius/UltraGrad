@@ -20,13 +20,13 @@ public:
     explicit Tensor(const Size&);
     explicit Tensor(len_type);
 
-    Comparison compare (const Tensor<T>&) const;
+    [[nodiscard]] Comparison compare (const Tensor<T>&) const;
     [[nodiscard]] T& item() const;
     [[nodiscard]] T& at(len_type) const;
 	[[nodiscard]] Size     shape() const;
     [[nodiscard]] dim_type dims()  const;
     [[nodiscard]] len_type numel(dim_type start_dim = 0) const;
-    [[nodiscard]] len_type getOffset(std::initializer_list<idx_type>) const;
+    [[nodiscard]] bool is_scalar() const;
     [[nodiscard]] len_type get_num_threads() const;     // Implement more sophisticated alg
     [[nodiscard]] bool all() const;
 
@@ -94,15 +94,15 @@ public:
     Tensor<T> sum(dim_type dim = 0, bool for_all = false, bool keepdim = false) const;
     Tensor<T> product(dim_type dim = 0, bool for_all = false, bool keepdim = false) const;
     // TODO: implement those two with special return types that contain indices(argmax/argmin) for backprop
-    Tensor<T> max(dim_type dim = 0, bool for_all = true, bool keepdim = false) const;
-    Tensor<T> min(dim_type dim = 0, bool for_all = true, bool keepdim = false) const;
+    Tensor<T> max(dim_type dim = 0, bool for_all = false, bool keepdim = false) const;
+    Tensor<T> min(dim_type dim = 0, bool for_all = false, bool keepdim = false) const;
     Tensor<len_type> argmax(dim_type dim = 0, bool for_all = true, bool keepdim = false) const = delete;
     Tensor<len_type> argmin(dim_type dim = 0, bool for_all = true, bool keepdim = false) const = delete;
 
     // Next functions just change the size object - trivial
     Tensor<T> unsqueeze(dim_type) const;
     Tensor<T> squeeze(dim_type) const;
-    Tensor<T> reshape(dim_type) const;
+    Tensor<T> reshape(std::initializer_list<len_type>) const;
     // Next are non-trivial functions
     Tensor<T> permute(std::initializer_list<dim_type>) const;
     Tensor<T> transpose() const;
@@ -134,14 +134,33 @@ private:
     // place for another T* holding gradient values: T* grad;
     // place for a boolean grad flag: bool requires_grad = false;
     // place for (some version of array) of parent Tensors.
-    Tensor(const T*, Size&&, bool is_owner_ = false);   // FIXME: wtf is wrong with this constructor???
+    Tensor(T*, Size&&, bool is_owner_);   // FIXME: wtf is wrong with this constructor???
 };
+
+template<Algebraic T>
+Tensor<T> Tensor<T>::reshape(std::initializer_list<len_type> new_shape) const {
+    len_type start = 1;
+    std::for_each(new_shape.begin(), new_shape.end(),
+                  [&start](len_type x)->void{ start *= x; });
+    assert(start == numel());
+    return Tensor<T>(data, Size(new_shape), true);
+}
+
+template<Algebraic T>
+Tensor<T> Tensor<T>::unsqueeze(dim_type dim) const {
+    assert(dim < dims());
+    return Tensor<T>(data, size.insert(dim, 1));
+}
+
+template<Algebraic T>
+bool Tensor<T>::is_scalar() const {
+    return size.is_scalar();
+}
 
 template<Algebraic T>
 ContiguousIterator<T> Tensor<T>::end() const {
     return { this->data + numel() };
 }
-
 template<Algebraic T>
 ContiguousIterator<T> Tensor<T>::begin() const {
     return { this->data };
@@ -211,7 +230,7 @@ len_type Tensor<T>::get_num_threads() const {
     return *std::max_element(size.begin(), size.end());
 }
 
-// for now not implementing keepdim
+// FIXME: complicated as fuck
 template<Algebraic T>
 Tensor<T> Tensor<T>::reduce_op(T& accumulate, const std::function<void(T)>& reduction, dim_type dim, bool for_all, bool keepdim) const {
     assert(dim < this->dims() && "Dimension out of bounds (reduce_op)");
@@ -223,19 +242,40 @@ Tensor<T> Tensor<T>::reduce_op(T& accumulate, const std::function<void(T)>& redu
     }
     Tensor<T> out(this->size.remove(dim, keepdim));
     auto temp = accumulate;
-    auto block_s = numel(dim);     // galochka
+    auto block_s = numel(dim);
     auto step = block_s / size[dim];
-    // FIXME: complicated as fuck
     len_type count = 0;
-    for (int block = 0; block < numel(); block += block_s) {   // galochka
-        for (int i = 0; i <  step; ++i) {
+    if (globals::CPU_MULTITHREAD && 0) {    // FIXME: for now ~20 times worse than sequential option
+        std::vector<std::thread> threads(step);
+        auto f = [&reduction, &accumulate, &count, this, block_s, &out, temp, step] (len_type block, int i) -> void {
             for (int delta = 0; delta < block_s; delta += step) {
-                assert(block + i + delta < numel());
+                assert(block + i + delta < numel());    // DEBUG
                 reduction(data[block + i + delta]);
             }
             out.data[count] = accumulate;
             accumulate = temp;
             ++count;
+        };
+        for (len_type block = 0; block < numel(); block += block_s) {
+            for (int i = 0; i < step; ++i) {
+                threads[i] = std::thread(f, block, i);
+            }
+            for (auto& th: threads) {
+                th.join();
+            }
+//            threads.clear();
+        }
+    } else {
+        for (len_type block = 0; block < numel(); block += block_s) {
+            for (int i = 0; i < step; ++i) {
+                for (int delta = 0; delta < block_s; delta += step) {
+                    assert(block + i + delta < numel());    // DEBUG
+                    reduction(data[block + i + delta]);
+                }
+                out.data[count] = accumulate;
+                accumulate = temp;
+                ++count;
+            }
         }
     }
     return out;
@@ -473,13 +513,8 @@ Tensor<T>::Tensor(len_type length) {
 template<Algebraic T>
 Tensor<T> Tensor<T>::operator[](idx_type index) const {
     assert(index < this->size[0]);
-    T* p_out;
-    if (this->dims() == 1)
-        p_out = data + index;
-    else
-        p_out = data + index * numel(1);
-    Tensor<T> out(p_out, Size(size, 1));
-    return out;
+    T* p_out = data + index * numel(1);
+    return Tensor<T>(p_out, Size(size, 1), false);
 }
 
 template<Algebraic T>
@@ -487,28 +522,16 @@ inline dim_type Tensor<T>::dims() const {
     return this->size.dims();
 }
 
-// NOTE: no ownership
-// FIXME: why new_data = nullptr was a thing???
+// FIXME: not cool style
 template<Algebraic T>
-Tensor<T>::Tensor(const T* new_data, Size&& new_shape, bool is_owner_)
-    : data{new_data}, size{new_shape} {
-    this->is_owner = is_owner_;
-//    new_data = nullptr;
-}
-
-template<Algebraic T>
-inline  len_type Tensor<T>::getOffset(std::initializer_list<idx_type> args) const {
-    //NOTE: don't really need dim checking(for now it's called only from [{...}] operator)
-    if (args.size() == 1){
-        return numel(1) * (*args.begin());
+Tensor<T>::Tensor(T* new_data, Size&& new_shape, bool is_owner_)
+    : size{new_shape}, is_owner{is_owner_} {
+    if (is_owner) {
+        data = new T[numel()];
+        std::copy(new_data, new_data + numel(), data);
+    } else {
+        data = new_data;
     }
-    len_type result = 0;
-    idx_type i = 1;     //args.size();
-    for (auto item = args.begin(); item < args.end() - 1; ++item, ++i){
-        result += (*item) * numel(i);
-    }
-    result += *(args.end() - 1);
-    return result;
 }
 
 template<Algebraic T>
@@ -561,15 +584,27 @@ inline Tensor<T>& Tensor<T>::operator=(Tensor&& other) noexcept {
 	return *this;
 }
 
+#if 0
 template<Algebraic T>
 inline Tensor<T> Tensor<T>::operator[](std::initializer_list<len_type> indexes) const {
-	assert(this->dims() != 0 && "can't subscript scalar tensor");
-	assert(indexes.size() <= this->dims() && "too many indexes to subscript");
-	//FIXME, horrible match checking
+	assert(!is_scalar() && "can't subscript scalar tensor");
     len_type arg_size = indexes.size();
-    assert(size > indexes && "Not compatible sizes");
+    assert(size > indexes && "Not compatible sizes");   // checks for size differences
     T* p_out = this->data + this->getOffset(indexes);
-	return Tensor<T>(p_out, Size(this->size, arg_size));
+	return Tensor<T>(p_out, Size(this->size, arg_size), false);
+}
+#endif
+
+template<Algebraic T>
+inline Tensor<T> Tensor<T>::operator[](std::initializer_list<len_type> indexes) const {
+    assert(!is_scalar() && "can't subscript scalar tensor");
+    assert(size > indexes && "out of bounds");
+    len_type offset = 0;
+    len_type i = 1;
+    std::for_each(indexes.begin(), indexes.end(),
+                  [&offset, &i, this](len_type x)->void { offset += numel(i) * x; ++i; });
+    T* out = data + offset;
+    return Tensor<T>(out, Size(size, indexes.size()), false);
 }
 
 template<Algebraic T>
@@ -579,7 +614,7 @@ inline Size Tensor<T>::shape() const {
 
 template<Algebraic T>
 inline len_type Tensor<T>::numel(dim_type start_dim) const {
-	assert(start_dim < this->dims() && "dim number is too high (numel)");
+	assert(start_dim <= this->dims() && "dim number is too high (numel)");
 	len_type prod = 1;
 	for (len_type i = start_dim; i < this->dims(); ++i) prod *= this->size[i];
 	return prod;

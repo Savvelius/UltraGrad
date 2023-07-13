@@ -76,14 +76,30 @@ public:
     ~Ptr();
 };
 
-
 int main() {
-//    Tensor<float> t1({2, 1, 2, 3}, 0.0);
-//    cout << t1 << t1.max(2, false);
-//    cout << t1.squeeze(1);
-    struct{vector<int> v;} s;
-    cout << sizeof (s);
-}
+    Tensor<float> t1({2, 200, 1000}, 0.0);
+//    cout << t1[{1, 1}] << t1.reshape({2, 2, 2}).shape() << t1;
+//    cout << t1.max(2);
+    constexpr int NUM_ITERS = 1;
+    Tensor<float> result;
+    int time1 = 0, time2 = 0;
+    {
+        globals::CPU_MULTITHREAD = true;
+        Timer tm("Parallel");
+        for (int _ = 0; _ < NUM_ITERS; ++_)
+            result = t1.max();
+        time2 += tm.get_time();
+    }
+    {
+        globals::CPU_MULTITHREAD = false;
+        Timer tm("Sequential");
+        for (int _ = 0; _ < NUM_ITERS; ++_)
+            result = t1.max();
+        time1 += tm.get_time();
+    }
+    cout << "Average sequnetial time = " << time1 << endl
+         << "Average parallel time = "   << time2;
+ }
 
 
 
