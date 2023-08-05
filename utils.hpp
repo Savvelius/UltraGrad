@@ -15,6 +15,7 @@
 #include <thread>
 #include <iterator>
 #include <span>
+#include <fstream>
 
 #define MIN(x, y) ((x<y)?x:y)
 #define MAX(x, y) ((x<y)?y:x)
@@ -27,7 +28,15 @@ typedef uint8_t  dim_type;
 
 namespace globals {
     extern bool CPU_MULTITHREAD;
+    extern bool EXPERIMENTAL;
 }
+
+template<class T>
+concept HasMinMaxLimit = 
+	requires() {
+		{ std::numeric_limits<T>::max() } -> std::same_as<T>;
+		{ std::numeric_limits<T>::min() } -> std::same_as<T>;
+};
 
 template<class T>
 concept Comparable =
@@ -40,7 +49,6 @@ concept Comparable =
 template<class T>
 concept Algebraic =
         requires(T self, T other) {
-            // should have numeric limit infinity
             { -self }        -> std::convertible_to<T>;
             { self }         -> std::convertible_to<bool>; // NOTE: might be a bad idea
             { self == 0 }    -> std::same_as<bool>;        // for handling division by zero
@@ -48,16 +56,16 @@ concept Algebraic =
             { self - other } -> std::convertible_to<T>;
             { self * other } -> std::convertible_to<T>;
             { self / other } -> std::convertible_to<T>;
-        } && Comparable<T>;
+        } && Comparable<T> && HasMinMaxLimit<T>;
 
-template<class T>
+template<class T, class U>
 concept InputContainer =
         requires(T self) {
-            {self.begin()} -> std::convertible_to<std::input_iterator_tag>;
-            {self.end()}   -> std::convertible_to<std::input_iterator_tag>;
+            { self.begin() } -> std::convertible_to<std::input_iterator_tag>;
+            { self.end() }   -> std::convertible_to<std::input_iterator_tag>;
         };
 
-extern struct BIGGEST_{
+struct BIGGEST_{
     template<typename T>
     bool operator > (T other) {
         return true;
@@ -77,9 +85,9 @@ extern struct BIGGEST_{
     friend bool operator < (T other, BIGGEST_ self) {
         return true;
     }
-} BIGGEST;
+};
 
-extern struct SMALLEST_ {
+struct SMALLEST_ {
     template<typename T>
     bool operator > (T other) {
         return false;
@@ -99,7 +107,7 @@ extern struct SMALLEST_ {
     friend bool operator < (T other, SMALLEST_ self) {
         return false;
     }
-} SMALLEST;
+};
 
 enum class Comparison {
     lt,     // less than
@@ -109,6 +117,8 @@ enum class Comparison {
     eq,     // equal
     ne,     // not equal
 };
+
+std::ostream& operator << (std::ostream& out, Comparison cmp);
 
 enum class State {
     True,
@@ -134,10 +144,32 @@ namespace util {
 
     };
 #endif
+
+
+    template<std::integral T>
+    constexpr T factorial(T n) {
+        assert(n >= 0);
+        T accum = 1;
+        for(T i = n; i > 1; --i)
+            accum *= i;
+        return accum;
+    }
+
+    template<std::floating_point T>
+    constexpr T exp(T x, size_t limit = 100) {
+        T acc = 1;
+        T result = 0;
+        for(size_t i = 1; i < limit + 1; ++i) {
+            result += acc;
+            acc *= x / i;
+        }
+        return result;
+    }
+
     template<typename T>
-    inline void apply_bin_ip(T* mutated, std::size_t size, T *other, std::function<void(T &, T)> bin_op) {
+    inline void apply_bin_ip(T* mutated, std::size_t size, T *other, const std::function<T(T, T)>& bin_op) {
         for (std::size_t i = 0; i < size; i++)
-            bin_op(mutated[i], other[i]);
+            mutated[i] = bin_op(mutated[i], other[i]);
     }
     template<typename T, typename U>
     inline void apply_bin(T* first, std::size_t size, T* second, T* out, std::function<U(T, T)> bin_op) {
@@ -149,6 +181,12 @@ namespace util {
         std::for_each(container.begin(), container.end(),
                       [&start, &bin_op](T x)->void{ start = bin_op(start, x); });
         return start;
+    }
+    inline len_type index_abs(int index, len_type length) {
+        return (index >= 0)?index:(length + index + 1);
+    }
+    inline dim_type index_abs(int index, dim_type length) {
+        return (index >= 0)?index:(length + index + 1);
     }
 }
 
@@ -172,7 +210,7 @@ namespace return_types {
     };
 }
 
-// NOTE: data in Tensor can be replaced with this wrapper for simplicity(or no)
+// NOTE: data in Tensor can be replaced with this wrapper for simplicity(or not)
 template<typename T>
 class PtrWrapper {
     T* data = nullptr;
@@ -190,7 +228,7 @@ public:
 // begin, end - return iterator, data - returns raw pointer, size - returns size of array
 template<typename  Elem>
 class ContiguousIterator {
-    const Elem* ptr = nullptr;
+    Elem* ptr = nullptr;
 public:
     using value_type = Elem;
     using element_type = Elem;

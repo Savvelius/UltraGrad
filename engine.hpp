@@ -13,28 +13,28 @@
 template<Algebraic T>
 class Tensor {
 public:
-	Tensor() = default;
-	Tensor(std::initializer_list<len_type>, T);
-	Tensor(const Tensor<T>&, bool empty = false);
+	// Tensor() = default;
+	Tensor(std::initializer_list<len_type>, bool requires_grad = false);
+	Tensor(const Tensor<T>&);
 	Tensor(Tensor<T>&&) noexcept;
     explicit Tensor(const Size&);
-    explicit Tensor(len_type);
 
-    [[nodiscard]] Comparison compare (const Tensor<T>&) const;
+    void fill_sequential(T start_val = 0);
+    bool write_to_file(char const *, char sep = ' ');
+    [[nodiscard]] Comparison compare (const Tensor<T>&, int) const;
     [[nodiscard]] T& item() const;
-    [[nodiscard]] T& at(len_type) const;
 	[[nodiscard]] Size     shape() const;
     [[nodiscard]] dim_type dims()  const;
-    [[nodiscard]] len_type numel(dim_type start_dim = 0) const;
+    [[nodiscard]] len_type numel(dim_type start_dim = 0, int end_dim = -1) const;
     [[nodiscard]] bool is_scalar() const;
     [[nodiscard]] len_type get_num_threads() const;     // Implement more sophisticated alg
     [[nodiscard]] bool all() const;
 
     // Those two are for range compatibility -> span usage
-    ContiguousIterator<T> begin() const;
-    ContiguousIterator<T> end() const;
+    T* begin() const;
+    T* end()   const;
 
-    Tensor<T> empty_like() const = delete;
+//    Tensor<T> empty_like() const;
 	Tensor<T>& operator = (const Tensor&);
 	Tensor<T>& operator = (T);
 	Tensor<T>& operator = (Tensor&&) noexcept;
@@ -45,6 +45,7 @@ public:
     Tensor<T> operator [] (Tensor<bool>&&)      const = delete;       // will be implemented after boolean ops
     [[deprecated]] Tensor<T> operator [] (Range<len_type>&&) const = delete;       // Deprecated custom class, replace with built-in range
 
+    // TODO: make all of those work with binary_op
     Tensor<bool> operator == (const Tensor<T>&) const;
     Tensor<bool> operator == (T)                const = delete;
     Tensor<bool> operator > (const Tensor<T>&)  const = delete;
@@ -53,10 +54,10 @@ public:
     Tensor<bool> operator < (T)                 const = delete;
 
     // NOTE: might be beneficial to change them to rvalue refs
-    Tensor<T>  bin_op(const Tensor<T>&, const std::function<void(T&, T)>&) const;
-    Tensor<T>& bin_op_ip(const Tensor<T>&, const std::function<void(T&, T)>&);
-    Tensor<T>  un_op(const std::function<void(T&)>&) const;
-    Tensor<T>& un_op_ip(const std::function<void(T&)>&);
+    Tensor<T>  bin_op(const Tensor<T>&, const std::function<T(T, T)>&) const;
+    Tensor<T>& bin_op_ip(const Tensor<T>&, const std::function<T(T, T)>&);
+    Tensor<T>  un_op(const std::function<T(T)>&) const;
+    Tensor<T>& un_op_ip(const std::function<T(T)>&);
 
     Tensor<T> operator + (const Tensor<T>&) const;        // continue from here
     Tensor<T> operator + (T) const;
@@ -108,20 +109,18 @@ public:
     Tensor<T> transpose() const;
 
     // Next are functions that mutate and concatenate tensors
-    Tensor<T> concatenate(const Tensor<T>&, dim_type) const;
+    Tensor<T> concat(const Tensor<T>&, dim_type) const;
 
     void backward() = delete;
 
 	~Tensor();
 
-    friend Tensor<bool>;
     friend std::ostream& operator<<(std::ostream& out, const Tensor<T>& object) {
         //FIXME outputs tensor as 1d array
         // should probably be recursive
         out << '[';
-        for (len_type i = 0; i < object.numel(0); i++){
+        for (len_type i = 0; i < object.numel(); i++)
             out << object.data[i] << ", ";
-        }
         out << ']' << std::endl;
         return out;
     }
@@ -130,12 +129,38 @@ private:
     T* data = nullptr;
     bool is_owner = true;
     Size size;
-    // place for a lambda _backward function: std::function<void(...)> _backward = nullptr;
-    // place for another T* holding gradient values: T* grad;
-    // place for a boolean grad flag: bool requires_grad = false;
-    // place for (some version of array) of parent Tensors.
+    std::function<void()> _backward;
+    mutable T* grad = nullptr;
+    bool requires_grad = false;
+    std::vector<Tensor<T>*> parents;
+    // methods
+    void zero_grad();
     Tensor(T*, Size&&, bool is_owner_);   // FIXME: wtf is wrong with this constructor???
 };
+
+
+template<Algebraic T>
+void Tensor<T>::fill_sequential(T start_val) {
+    for (auto& i : *this)
+        i = start_val++;
+}
+
+template<Algebraic T>
+void Tensor<T>::zero_grad() {
+    assert(requires_grad);
+    std::fill(grad, grad + numel(), 0);
+}
+
+template<Algebraic T>
+bool Tensor<T>::write_to_file(char const * fname, char sep) {
+    std::ofstream file;
+    file.open(fname, std::ios::trunc);
+    if (!file)
+        return false;
+    std::for_each(data, data + numel(), [&file, sep](T x)->void{ file << x << sep; });
+    file.close();
+    return true;
+}
 
 template<Algebraic T>
 Tensor<T> Tensor<T>::reshape(std::initializer_list<len_type> new_shape) const {
@@ -158,12 +183,13 @@ bool Tensor<T>::is_scalar() const {
 }
 
 template<Algebraic T>
-ContiguousIterator<T> Tensor<T>::end() const {
-    return { this->data + numel() };
+T* Tensor<T>::end() const {
+    return this->data + numel();
 }
+
 template<Algebraic T>
-ContiguousIterator<T> Tensor<T>::begin() const {
-    return { this->data };
+T* Tensor<T>::begin() const {
+    return this->data;
 }
 
 template<Algebraic T>
@@ -192,23 +218,82 @@ Tensor<T> Tensor<T>::product(dim_type dim, bool for_all, bool keepdim) const {
 
 template<Algebraic T>
 Tensor<T> Tensor<T>::matmul(const Tensor<T> & other) const {
-    assert(dims() == 2 && dims() == other.dims() && "for now implemented only for 2d arrays");
-    assert(size[1] == other.size[0] && "shapes of 2d arrays don't match");
-    Tensor<T> out(Size({size[0], other.size[1]}));
-    if (globals::CPU_MULTITHREAD) {
-        assert(0);
-        std::vector<std::thread> threads;
-    } else {
-        assert(0);
+//    assert(dims() == 2 && dims() == other.dims() && "for now implemented only for 2d arrays");
+    assert(size[-1] == other.size[-2] && "shapes of arrays don't match");
+    Comparison cmp = this->compare(other, 2);
+    Size max_size, min_size;
+    auto f = [other, this] (T* arg1, T* arg2, T* arg_out) -> void {
+        for (int i = 0; i < size[-2]; ++i) {
+            for (int j = 0; j < other.size[-1]; ++j) {
+                T temp = 0;
+                for (int k = 0; k < size[-1]; ++k) {
+                    temp += arg1[i * size[-1] + k] * arg2[k * other.size[-1] + j];
+                }
+                arg_out[i * other.size[-1] + j] = temp;
+            }
+        }
+    };
+    if (dims() == other.dims() && dims() == 2) {    // this is stupid but necessary - КОСТЫЛЬ
+        Size out_s = size;
+        out_s[1] = other.size[1];
+        Tensor<T> out(out_s);
+        f(data, other.data, out.data);
+        return out;
     }
-    return out;
+    auto step1 = size[-1] * size[-2];
+    auto step2 = other.size[-1] * other.size[-2];
+    auto step3 = size[-2] * other.size[-1];
+    switch (cmp) {
+        case Comparison::eq: {
+            max_size = size;
+            max_size[-1] = other.size[-1];
+            Tensor<T> out(max_size);
+            if (globals::CPU_MULTITHREAD) {
+                std::vector<std::thread> threads(numel(0, -3));
+                for (len_type i = 0, j = 0, k = 0, th_id = 0;
+                    i < numel(); i += step1, j += step2, k += step3, ++th_id)
+                    threads[th_id] = std::thread(f, data + i, other.data + j, out.data + k);
+                for (auto& th : threads)
+                    th.join();
+            } else {
+                for (len_type i = 0, j = 0, k = 0; i < numel(); i += step1, j += step2, k += step3)
+                    f(data + i, other.data + j, out.data + k);
+            }
+            return out;
+        }
+        // TODO: checkme, i'm tired
+        case Comparison::gt: {
+            max_size = size;
+            min_size = other.size;
+            max_size[-1] = other.size[-1];
+            Tensor<T> out(max_size);
+            auto block = numel() / other.numel();
+            for (int inner = 0; inner < block; ++inner) {
+                for (len_type i = inner * other.numel(), j = 0, k = inner * other.numel(); j < other.numel(); i += step1, j += step2, k += step3)
+                    f(data + i, other.data + j, out.data + k);
+            }
+            return out;
+        }
+
+        case Comparison::lt: {
+            max_size = other.size;
+            min_size = size;
+            max_size[-1] = other.size[-1];
+            Tensor<T> out(max_size);
+            break;
+        }
+        case Comparison::ne: {
+            assert(0 && "Shapes of tensors don't match");
+            break;
+        }
+        default: {
+            assert(0 && "Can't happen");
+        }
+    }
+//    return Tensor<T>();
 }
 
-template<Algebraic T>
-inline T& Tensor<T>::at(len_type index) const {
-    assert(index < numel());
-    return data[index];
-}
+
 
 template<Algebraic T>
 bool Tensor<T>::all() const {
@@ -220,8 +305,9 @@ template<Algebraic T>
 Tensor<bool> Tensor<T>::operator==(const Tensor<T> & other) const {
     assert(size == other.size);
     Tensor<bool> out(size);
-    for (len_type i = 0; i < numel(); ++i)
-        out.at(i) = (data[i] == other.data[i]);
+    std::transform(data, data + numel(), other.data, out.begin(), [](T x, T y) -> bool { return x == y; });
+//    for (len_type i = 0; i < numel(); ++i)
+//        out.at(i) = (data[i] == other.data[i]);
     return out;
 }
 
@@ -236,7 +322,7 @@ Tensor<T> Tensor<T>::reduce_op(T& accumulate, const std::function<void(T)>& redu
     assert(dim < this->dims() && "Dimension out of bounds (reduce_op)");
     if (for_all) {
         std::for_each(data, data + numel(), reduction);
-        Tensor<T> out(1);
+        Tensor<T> out({1}, requires_grad);
         out.data[0] = accumulate;
         return out;
     }
@@ -245,7 +331,7 @@ Tensor<T> Tensor<T>::reduce_op(T& accumulate, const std::function<void(T)>& redu
     auto block_s = numel(dim);
     auto step = block_s / size[dim];
     len_type count = 0;
-    if (globals::CPU_MULTITHREAD && 0) {    // FIXME: for now ~20 times worse than sequential option
+    if (globals::CPU_MULTITHREAD && globals::EXPERIMENTAL) {    // FIXME: for now ~20 times worse than sequential option
         std::vector<std::thread> threads(step);
         auto f = [&reduction, &accumulate, &count, this, block_s, &out, temp, step] (len_type block, int i) -> void {
             for (int delta = 0; delta < block_s; delta += step) {
@@ -289,79 +375,80 @@ Tensor<T> Tensor<T>::sum(dim_type dim, bool for_all, bool keepdim) const {
 
 template<Algebraic T>
 Tensor<T> Tensor<T>::sigmoid() const {
-    return this->un_op([](T& x)->void{ x = 1 / (exp(-x) + 1); });
+    return this->un_op([](T x)->T{ return 1 / (exp(-x) + 1); });
 }
 
 template<Algebraic T>
 Tensor<T> Tensor<T>::tanh() const {
-    return this->un_op([](T& x)->void{ T temp = exp(2*x); x = (temp - 1) / (temp + 1); });
+    return this->un_op([](T x)->T{ T temp = exp(2*x); return (temp - 1) / (temp + 1); });
 }
 
 template<Algebraic T>
 Tensor<T> Tensor<T>::e() const {
-    return this->un_op([](T& x)->void{ x = exp(x); });
+    static_assert(std::is_floating_point_v<T>);
+    return this->un_op([](T x)->T{ return util::exp(x); });
 }
 
 template<Algebraic T>
 Tensor<T> Tensor<T>::relu() const {
-    return this->un_op([](T& x)->void{x = (x>0)?x:0;});
+    return this->un_op([](T x)->T{ return (x>0)?x:0;});
 }
 
 template<Algebraic T>
 Tensor<T> &Tensor<T>::operator/=(T other) {
     assert(other != 0);
-    return this->un_op_ip([other](T& x)->void{ x/=other; });
+    return this->un_op_ip([other](T x)->T{ return x / other; });
 }
 
 template<Algebraic T>
 Tensor<T>& Tensor<T>::operator/=(const Tensor<T> & other) {
-    return this->bin_op_ip(other, [](T& x, T y)->void{ assert(y != 0);x /= y; });
+    return this->bin_op_ip(other, [](T x, T y)->T{ assert(y != 0); return x / y; });
 }
 
 template<Algebraic T>
 Tensor<T>& Tensor<T>::operator*=(T other) {
-    return this->un_op_ip([other](T& x)->void{ x*=other; });
+    return this->un_op_ip([other](T x)->T{ return x * other; });
 }
 
 template<Algebraic T>
 Tensor<T> &Tensor<T>::operator*=(const Tensor<T> & other) {
-    return this->bin_op_ip(other, [](T& x, T y)->void{x *= y;});
+    return this->bin_op_ip(other, [](T x, T y)->T{ return x * y;});
 }
 
 template<Algebraic T>
 Tensor<T>& Tensor<T>::operator-=(T other) {
-    return this->un_op_ip([other](T& x)->void{x -= other;});
+    return this->un_op_ip([other](T x)->T{ return x - other;});
 }
 
 template<Algebraic T>
 Tensor<T>& Tensor<T>::operator-=(const Tensor<T> & other) {
-    return this->bin_op_ip(other, [](T& x, T y)->void{ x -= y; });
+    return this->bin_op_ip(other, [](T x, T y)->T{ return x - y; });
 }
 
 template<Algebraic T>
 Tensor<T>& Tensor<T>::operator+=(T other) {
-    return this->un_op_ip([other](T& x)->void{ x += other; });
+    return this->un_op_ip([other](T x)->T{ return x + other; });
 }
 
 template<Algebraic T>
 Tensor<T> Tensor<T>::operator/(T other) const {
     assert(other != 0);
-    return Tensor<T>(*this).un_op_ip([other](T& x)->void{ x /= other; });
+    return Tensor<T>(*this).un_op_ip([other](T x)->T{ return x / other; });
 }
 
 template<Algebraic T>
 Tensor<T> Tensor<T>::operator / (const Tensor<T> & other) const {
-    return this->bin_op(other, [](T& x, T y){ assert(y != 0); x /= y; });
+    return this->bin_op(other, [](T x, T y)->T{ assert(y != 0); return x / y; });
 }
 
 template<Algebraic T>
 Tensor<T> Tensor<T>::operator*(T other) const {
-    return this->un_op([other](T& x)->void{x *= other;});
+    return this->un_op([other](T x)->T{ return x * other;});
 }
 
 template<Algebraic T>
 Tensor<T> Tensor<T>::operator*(const Tensor<T> & other) const {
-    return this->bin_op(other, [](T& x, T y)->void{ x *= y; });
+    return this->bin_op(other, [](T x, T y)->T{ return x * y; });
 }
 
 template<Algebraic T>
@@ -377,23 +464,23 @@ Tensor<T> Tensor<T>::operator-(const Tensor<T> & other) const {
 template<Algebraic T>
 Tensor<T> Tensor<T>::operator+(T other) const {
     Tensor<T> out(*this);
-    return out.un_op_ip([other](T& x)->void{ x += other; });
+    return out.un_op_ip([other](T x)->T{ return x + other; });
 }
 
 // FIXME
 template<Algebraic T>
-inline Tensor<T>& Tensor<T>::un_op_ip(const std::function<void(T &)>& operation) {
+inline Tensor<T>& Tensor<T>::un_op_ip(const std::function<T(T)>& operation) {
     if (globals::CPU_MULTITHREAD) {
         const auto num_th = this->get_num_threads();
         auto step = numel() / num_th;
         std::vector<std::thread> threads(num_th);
-        auto f = [this, operation, step] (int off) -> void{ std::for_each(data + off, data + off + step, operation); };
+        auto f = [this, operation, step] (int off) -> void{ std::transform(data + off, data + off + step, data + off, operation); };
         for (int off = 0, i = 0; off < numel(); off += step, ++i)
             threads[i] = std::thread(f, off);
         for (auto& th: threads)
             th.join();
     } else {
-        std::for_each(data, data + numel(), operation);
+        std::transform(data, data + numel(), data, operation);    // FIXME
     }
     return *this;
 }
@@ -417,13 +504,14 @@ inline T& Tensor<T>::item() const {
 
 // FIXME: if compare operator isn't use anywhere else, inline it into this function and remove Compare enum class
 template<Algebraic T>
-inline Tensor<T>& Tensor<T>::bin_op_ip(const Tensor<T>& other,const std::function<void(T&, T)>& operation) {
+inline Tensor<T>& Tensor<T>::bin_op_ip(const Tensor<T>& other,const std::function<T(T, T)>& operation) {
     Comparison state = this->compare(other);
     T* out; len_type out_s;
     T* min_t; len_type min_s;
     switch (state) {
         case Comparison::eq: {
-            util::apply_bin_ip<T>(data, numel(), other.data, operation);
+            std::transform(data, data + numel(), other.data, data, operation);
+//            util::apply_bin_ip<T>(data, numel(), other.data, operation);
             return *this;
         }
         case Comparison::gt: {
@@ -438,7 +526,6 @@ inline Tensor<T>& Tensor<T>::bin_op_ip(const Tensor<T>& other,const std::functio
         }
         case Comparison::ne: {
             assert(0 && "Shapes of tensors don't match");
-            break;
         }
         default: {
             assert(0 && "Can't happen");
@@ -447,7 +534,7 @@ inline Tensor<T>& Tensor<T>::bin_op_ip(const Tensor<T>& other,const std::functio
     if (globals::CPU_MULTITHREAD) {
         auto f = [&out, &min_t, min_s, operation](len_type block) -> void {
             for (int i = 0; i < min_s; ++i)
-                operation(out[block + i], min_t[i]);
+                out[block + i] = operation(out[block + i], min_t[i]);
         };
         std::vector<std::thread> threads(out_s / min_s);
         for (len_type block = 0, i = 0; block < out_s; block += min_s, ++i)
@@ -458,58 +545,59 @@ inline Tensor<T>& Tensor<T>::bin_op_ip(const Tensor<T>& other,const std::functio
     else {
         for (len_type block = 0; block < out_s; block += min_s)
             for (int i = 0; i < min_s; i++)
-                operation(out[block + i], min_t[i]);
+                out[block + i] = operation(out[block + i], min_t[i]);
     }
     return *this;
 }
 
 template<Algebraic T>
-Comparison Tensor<T>::compare(const Tensor<T> & other) const {
-    return this->size.compare(other.size);
+Comparison Tensor<T>::compare(const Tensor<T> & other, int skip_from_end) const {
+    return this->size.compare(other.size, skip_from_end);
 }
 
 template<Algebraic T>
 Tensor<T>::Tensor(const Size & new_size) {
     this->size = new_size;
     this->data = new T[numel()];
+    this->grad = new T[numel()];
 }
 
 template<Algebraic T>
 Tensor<T> Tensor<T>::operator-() const {
-    return this->un_op([](T& x) -> void{ x *= -1; });
+    return this->un_op([](T x) -> T{ return -x; });
 }
 
 template<Algebraic T>
 Tensor<T>& Tensor<T>::operator+=(const Tensor<T> & other) {
-    return this->bin_op_ip(other, [](T& mut, T arg) -> void{ mut += arg; });
+    return this->bin_op_ip(other, [](T x, T y) -> T{ return x + y; });
 }
 
 template<Algebraic T>
-inline Tensor<T> Tensor<T>::un_op(const std::function<void(T&)>& operation) const {
+inline Tensor<T> Tensor<T>::un_op(const std::function<T(T)>& operation) const {
     Tensor<T> out(*this);
     return out.un_op_ip(operation);
 }
 
 // FIXME: implement a lot of helper - function and optimize the process, which is bloated for now
 template<Algebraic T>
-Tensor<T> Tensor<T>::bin_op(const Tensor<T> & other, const std::function<void(T&, T)>& operation) const {
+Tensor<T> Tensor<T>::bin_op(const Tensor<T> & other, const std::function<T(T, T)>& operation) const {
     Tensor<T> out(*this);
     return out.bin_op_ip(other, operation);
 }
 
 template<Algebraic T>
 Tensor<T> Tensor<T>::operator+(const Tensor<T> & other) const {
-    return this->bin_op(other, [](T& x, T y) -> void { x += y; });
+    auto out = this->bin_op(other, [](T x, T y) -> T { return x + y; });
+    if(requires_grad) {
+        assert(0);
+        out._backward = [this, other, &out]() -> void {
+            this->grad += out.grad;
+            other.grad += out.grad;
+        };  // FIXME
+    }
+    return out;
 }
 
-// FIXME: can't initialize data without initializing size
-template<Algebraic T>
-Tensor<T>::Tensor(len_type length) {
-    this->data = new T[length];
-    this->size = Size({length});
-}
-
-// FIXME: checkme
 template<Algebraic T>
 Tensor<T> Tensor<T>::operator[](idx_type index) const {
     assert(index < this->size[0]);
@@ -535,20 +623,20 @@ Tensor<T>::Tensor(T* new_data, Size&& new_shape, bool is_owner_)
 }
 
 template<Algebraic T>
-inline Tensor<T>::Tensor(std::initializer_list<len_type> shape, T fill_value) {
+inline Tensor<T>::Tensor(std::initializer_list<len_type> shape, bool requires_grad) {
 	this->size    = shape;
 	len_type prod = this->numel(0);
 	this->data = new T[prod];
-//    std::fill(data, data + prod, fill_value);
-	for (len_type i = 0; i < prod; i++, fill_value++) data[i] = fill_value;
+	this->requires_grad = requires_grad;
+    if (requires_grad)
+        grad = new T[prod];
 }
 
 template<Algebraic T>
-inline Tensor<T>::Tensor(const Tensor& other, bool empty) {
+inline Tensor<T>::Tensor(const Tensor& other) {
 	this->data = new T[other.numel()];
     this->size = other.size;
-    if (!empty)
-        std::copy(other.data, other.data + numel(), data);
+    std::copy(other.data, other.data + numel(), data);
 }
 
 template<Algebraic T>
@@ -613,10 +701,17 @@ inline Size Tensor<T>::shape() const {
 }
 
 template<Algebraic T>
-inline len_type Tensor<T>::numel(dim_type start_dim) const {
-	assert(start_dim <= this->dims() && "dim number is too high (numel)");
-	len_type prod = 1;
-	for (len_type i = start_dim; i < this->dims(); ++i) prod *= this->size[i];
-	return prod;
+inline len_type Tensor<T>::numel(dim_type start_dim, int end_dim) const {
+	return size.numel(start_dim, end_dim);
 }
+
+
+
+
+
+
+
+
+
+
 

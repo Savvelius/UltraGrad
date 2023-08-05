@@ -4,12 +4,16 @@ Size::Size(std::initializer_list<len_type> args) {
     this->data_ = args;
 }
 
-len_type Size::numel(dim_type start_dim) const {
+len_type Size::numel(dim_type start_dim, int end_dim) const {
     assert(start_dim < this->ndim());
+    auto end_index = util::index_abs(end_dim, ndim());
+    assert(end_index <= this->ndim());
+    assert(start_dim < end_index);
     if (!ndim())
         return 0;
     len_type out = 1;
-    std::for_each(data_.begin(), data_.end(), [&out](len_type x)->void{out *= x;});
+    std::for_each(data_.begin() + start_dim, data_.begin() + end_index,
+                  [&out](len_type x)->void{ out *= x; });
     return out;
 }
 
@@ -93,9 +97,10 @@ bool Size::operator>(std::initializer_list<len_type> args) const {
                       args.begin(),[](len_type t, len_type o)->bool{ return t > o; });
 }
 
-len_type Size::operator[](dim_type index) const {
-    assert(index < this->ndim() && "out of bounds");
-    return this->data_.at(index);
+len_type& Size::operator[](int index) const {
+    assert((index < ndim() || index > -uint8_t(ndim())) && "out of bounds");
+    index = (index >= 0)?index:(ndim() + index);
+    return const_cast<len_type&> (this->data_[index]);
 }
 
 inline dim_type Size::dims() const {
@@ -110,23 +115,29 @@ std::ostream& operator<<(std::ostream& out, const Size& size){
     return out;
 }
 
-// too much branches
-Comparison Size::compare(const Size & other) const {
+// FIXME: too much branches
+// TODO: AM I A КОСТЫЛЬ?
+Comparison Size::compare(const Size & other, int skip_from_end) const {
+    if (skip_from_end == MIN(ndim(), other.ndim()))
+        return Comparison::eq;
+    assert(skip_from_end < MIN(ndim(), other.ndim()));
     if (*this == other)
         return Comparison::eq;
     Comparison cmp = Comparison::ne;
-    for (auto i = ndim() - 1, j = other.ndim() - 1; i >= 0 && j >= 0; --i, --j) {
-        if (data_[i] != other.data_[j]) {
+    for (auto i = ndim() - 1 - skip_from_end, j = other.ndim() - 1 - skip_from_end; i >= 0 && j >= 0; --i, --j) {
+        if (data_[i] == other.data_[j] || data_[i] == 1 || data_[j] == 1) {
+            cmp = Comparison::eq;
+        } else {
             return cmp;
         }
-        cmp = Comparison::eq;   // NOTE: can be optimized
     }
-    if (cmp == Comparison::eq) {
+    if (cmp == Comparison::eq) {    // NOTE: this condition might be useless
         if (ndim() > other.ndim())
             return Comparison::gt;
-        return Comparison::lt;
+        else if (ndim() < other.ndim())
+            return Comparison::lt;
     }
-    return Comparison::ne;
+    return cmp;
 }
 
 auto Size::begin() const -> decltype(data_.begin()) {
@@ -175,5 +186,22 @@ bool Size::is_scalar() const {
     if (size() == 1 && data_[0] == 1)
         return true;
     return false;
+}
+
+Size Size::slice(int start, int end, int step) const {
+    start = (start >= 0)?start:(ndim() + start);
+    end = (end >= 0)?end:(ndim() + end);
+    std::vector<len_type> out(size());
+    auto index_abs = [this](int idx) -> int { return (idx >= 0)?idx:(ndim() + idx); };
+    for (int i = start; index_abs(i) < end; i += step) {
+        out.push_back((*this)[i]);
+    }
+    return {out};
+}
+
+Size::Size(std::vector<len_type> && other): data_{std::move(other)} {}
+
+auto Size::data() -> decltype(data_.data()) const {
+    return data_.data();
 }
 

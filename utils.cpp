@@ -1,6 +1,7 @@
 #include "utils.hpp"
 
 bool globals::CPU_MULTITHREAD = true;
+bool globals::EXPERIMENTAL    = false;
 
 Comparison operator ! (Comparison cmp) {
     using comp = Comparison;
@@ -26,6 +27,32 @@ Comparison operator && (Comparison cmp, bool val) {
     if (val)
         return cmp;
     return !cmp;
+}
+
+std::ostream& operator << (std::ostream& out, Comparison cmp) {
+    out << "Comparison(";
+    switch (cmp) {
+        case Comparison::eq :
+            out << "eq";
+            break;
+        case Comparison::ne :
+            out << "ne";
+            break;
+        case Comparison::lt :
+            out << "lt";
+            break;
+        case Comparison::gt :
+            out << "gt";
+            break;
+        case Comparison::le :
+            out << "le";
+            break;
+        case Comparison::ge :
+            out << "ge";
+            break;
+    }
+    out << ')' << std::endl;
+    return out;
 }
 
 //Comparison operator && (bool val, Comparison cmp) {
